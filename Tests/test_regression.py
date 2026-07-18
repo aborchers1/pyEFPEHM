@@ -38,21 +38,25 @@ RTOL = 1e-12
 
 #representative configurations spanning the physics regimes
 def base_params(**kw):
-	p = { 'e_start': 0.0, 'distance': 400.0, 'f22_start': 20.0,
-	     'phi_start': 0.7, 'mean_anomaly_start': 1.3, 'inclination': 0.9,
+	p = { 'eccentricity': 0.0, 'distance': 400.0, 'f22_start': 20.0,
+	     'phase': 0.7, 'mean_anomaly': 1.3, 'inclination': 0.9,
 	     'spin1x': 0.0, 'spin1y': 0.0, 'spin1z': 0.0, 'spin2x': 0.0, 'spin2y': 0.0, 'spin2z': 0.0}
 	p.update(kw)
 	return p
 
 CONFIGS = {
 	'equal_mass_non_spinning_circular' : base_params(mass1=10., mass2=10.),
-	'equal_mass_non_spinning_eccentric' : base_params(mass1=9., mass2=9., e_start=0.3),
+	'equal_mass_non_spinning_eccentric' : base_params(mass1=9., mass2=9., eccentricity=0.3),
 	'non_spinning_circular' : base_params(mass1=10., mass2=10., spin1z=0.4, spin2z=-0.3),
-	'aligned_eccentric'  : base_params(mass1=20.0, mass2=5.0, e_start=0.3, spin1z=0.4,  spin2z=0.1),
-	'precessing_circular': base_params(mass1=21.0, mass2=4.5, e_start=0.0, spin1x=0.4, spin1y=0.2, spin1z=0.3, spin2x=-0.2, spin2y=0.1, spin2z=0.1),
-	'precessing_eccentric': base_params(mass1=22.0, mass2=4.0, e_start=0.2, spin1x=0.3, spin1y=0.1, spin1z=0.4, spin2x=-0.2, spin2y=0.15, spin2z=0.1),
-	'tidal'              : base_params(mass1=1.6, mass2=1.4, e_start=0.1, spin1z=0.02, spin2z=0.01,
+	'aligned_eccentric'  : base_params(mass1=20.0, mass2=5.0, eccentricity=0.3, spin1z=0.4,  spin2z=0.1),
+	'precessing_circular': base_params(mass1=21.0, mass2=4.5, eccentricity=0.0, spin1x=0.4, spin1y=0.2, spin1z=0.3, spin2x=-0.2, spin2y=0.1, spin2z=0.1),
+	'precessing_eccentric': base_params(mass1=22.0, mass2=4.0, eccentricity=0.2, spin1x=0.3, spin1y=0.1, spin1z=0.4, spin2x=-0.2, spin2y=0.15, spin2z=0.1),
+	'tidal'              : base_params(mass1=1.6, mass2=1.4, eccentricity=0.1, spin1z=0.02, spin2z=0.01,
 	                            Lambda2_1=400.0, Lambda2_2=600.0, pn_tidal_order=12, horizon_absorption=False),
+	#configurations with a reference frequency different from the starting frequency, exercising
+	#the backward-stitched (f22_ref>f22_start) and pre-evolved (f22_ref<f22_start) solution paths
+	'precessing_eccentric_f22_ref_above': base_params(mass1=22.0, mass2=4.0, eccentricity=0.2, spin1x=0.3, spin1y=0.1, spin1z=0.4, spin2x=-0.2, spin2y=0.15, spin2z=0.1, f22_ref=40.0),
+	'aligned_eccentric_f22_ref_below'  : base_params(mass1=20.0, mass2=5.0, eccentricity=0.3, spin1z=0.4, spin2z=0.1, f22_ref=15.0),
 }
 
 #generate the frequency domain (h_plus, h_cross) waveform for a configuration

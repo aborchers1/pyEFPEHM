@@ -26,7 +26,7 @@ start_runtime = time.time()
 #array with parameters
 params = {'mass1': 2.4,
           'mass2': 1.2,
-          'e_start': 0.7,
+          'eccentricity': 0.7,
           'spin1x': -0.44,
           'spin1y': -0.26,
           'spin1z': 0.48,

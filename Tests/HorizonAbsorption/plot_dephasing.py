@@ -38,7 +38,7 @@ def horizon_absorption_dphasing(p_pyEFPE, y=None, e2=0):
 	kHA = (dmu + (9./8.)*(s2_1 - s2_2))*dchi + chi_eff*(1 - 2*nu + (9./8.)*(s2_1 + s2_2) + (45./16.)*dchi*dchi + (15./16.)*chi_eff*chi_eff)
 
 	#compute initial PN parameter
-	e20 = p_pyEFPE['e_start']*p_pyEFPE['e_start']
+	e20 = p_pyEFPE['eccentricity']*p_pyEFPE['eccentricity']
 	y0 = ((np.pi*M*p_pyEFPE['f22_start'])**(1/3))/np.sqrt(1 - e20)
 	
 	#if no y is given, use final PN parameter
@@ -64,7 +64,7 @@ base_pyEFPE_params = dict(
 mass1 = 10., mass2 = 1.,
 spin1x=-0.2, spin1y= 0.3, spin1z=0.9,
 spin2x=-0.4, spin2y=-0.4, spin2z=0.8,
-mean_anomaly_start=4.3, inclination=np.pi/3, phi_start=1.2, distance=100.
+mean_anomaly=4.3, inclination=np.pi/3, phase=1.2, distance=100.
 )
 
 #things to add to the two waveforms being compared
@@ -91,7 +91,7 @@ Mfs, ys, Delta_l_EFPE, Delta_l_exp, Delta_l_EFPE_tphimin = [np.zeros((len(e20s),
 for ie, e20 in enumerate(e20s):
 
 	#input the current eccentricity and initial frequency
-	base_pyEFPE_params['e_start'] = e20**0.5
+	base_pyEFPE_params['eccentricity'] = e20**0.5
 	base_pyEFPE_params['f22_start'] = ((np.sqrt(1 - e20)*y0)**3)/(np.pi*M_s)
 
 	#update parameter dictionaries with base parameters

@@ -16,7 +16,7 @@ from pyEFPEHM.utils.cython_utils import my_cpoly
 #################################################################
 
 #function to compute initial conditions in v=[y, e2, l, dl, DJ2, bpsip, phiz0, zeta0]
-def initial_conditions_for_RR_eqs(f0_orb, ff_orb, e0, m1, m2, spin0_1, spin0_2, inclination, phi0, phi_e0, DJ2_tol=1e-10, DJ2_max_iter=10, pn_spin_order=6):
+def initial_conditions_for_RR_eqs(f0_orb, fref_orb, ff_orb, e_ref, m1, m2, spin1_ref, spin2_ref, inclination, phi_ref, phi_e_ref, DJ2_tol=1e-10, DJ2_max_iter=10, pn_spin_order=6):
 
 	r'''
 	Function to compute initial conditions and initialize our waveform. We try to follow the conventions of LAL.
@@ -30,22 +30,25 @@ def initial_conditions_for_RR_eqs(f0_orb, ff_orb, e0, m1, m2, spin0_1, spin0_2, 
 	
 	f0_orb: float
 	        initial orbital frequency
+	fref_orb: float
+	        reference orbital frequency, at which e_ref, phi_ref, phi_e_ref, the spins and the inclination are defined.
+	        If it is at or beyond the end of the evolution (final frequency or ISCO), it is clamped to the final y with a warning.
 	ff_orb: float
 	        final orbital frequency. If it is larger than ISCO frequency, it will be forced to be the ISCO frequency.
-	e0: float
-	    initial (time-)eccentricity e_t from Quasi-Keplerian polarization
+	e_ref: float
+	    reference (time-)eccentricity e_t from Quasi-Keplerian parametrization
 	m1: float
 	    primary mass, assumed units are [1/f]
 	m2: float
 	    secondary mass, assumed units are [1/f]. If m2>m1, all properties of the components will be flip
-	spin0_1: numpy array, shape (3,)
-	      dimensionless spin vector spin1=S1/mu1^2=s1/mu1 of the primary object in cartesian coordinates
-	spin0_2: numpy array, shape (3,)
-	      dimensionless spin vector spin2=S2/mu2^2=s2/mu2 of the secondary object in cartesian coordinates
-	phi0: float
-	      initial orbital phase
-	phi_e0: float
-	        initial mean anomaly \ell_0 of quasi keplerian parametrization
+	spin1_ref: numpy array, shape (3,)
+	    reference dimensionless spin vector spin1=S1/mu1^2=s1/mu1 of the primary object in cartesian coordinates
+	spin2_ref: numpy array, shape (3,)
+	    dimensionless spin vector spin2=S2/mu2^2=s2/mu2 of the secondary object in cartesian coordinates
+	phi_ref: float
+	    reference orbital phase
+	phi_e_ref: float
+	    reference mean anomaly \ell_0 of quasi keplerian parametrization
 	inclination : float
 		Angle between orbital angular momentum and vector from binary to observer (N).
 
@@ -54,12 +57,12 @@ def initial_conditions_for_RR_eqs(f0_orb, ff_orb, e0, m1, m2, spin0_1, spin0_2, 
 	#compute mass related things
 	M, mu1, mu2, nu, dmu = mass_params_from_m1_m2(m1, m2)
 
-	#compute initial squared eccentricity
-	e20 = e0*e0
+	#compute reference squared eccentricity
+	e2_ref = e_ref*e_ref
 
-	#compute initial and final y using Eq.(5)
-	y0 = ((2*np.pi*M*f0_orb)**(1./3.))/np.sqrt(1-e20)
-	
+	#compute reference y using Eq.(5)
+	y_ref = y_of_forb(fref_orb, e2_ref, M)
+
 	#if final frequency is None, integrate to the ISCO
 	yf_ISCO = 6**-0.5
 	if ff_orb is None:
@@ -68,24 +71,45 @@ def initial_conditions_for_RR_eqs(f0_orb, ff_orb, e0, m1, m2, spin0_1, spin0_2, 
 	else:
 
 		#Use the 0PN estimate for the final eccentricity. This is an upper bound on the final eccentricity (see 2604.11903)
-		e2f = float(compute_e2_of_f_0PN(ff_orb, e20, f0_orb))
+		e2f = float(compute_e2_of_f_0PN(ff_orb, e2_ref, fref_orb))
 
 		#The 0PN e2f leads to a slightly over-estimated yf (which is good to have some more padding)
-		yf = ((2*np.pi*M*ff_orb)**(1./3.))/np.sqrt(1 - e2f)
-		
+		yf = y_of_forb(ff_orb, e2f, M)
+
 		#check that we are not surpassing the ISCO
 		if yf > yf_ISCO:
 			warnings.warn("With input final orbital frequency, yf=%.3f and the ISCO is surpassed, setting yf=yISCO=%.3f"%(yf, yf_ISCO), UserWarning, stacklevel=2)
 			yf = yf_ISCO
-	
-	#compute initial \lambda
-	l0 = phi0
-	
-	#compute initial \delta\lambda from above Eq.(17a) of 1801.08542
-	dl0 = phi0 - phi_e0
+
+	#if the reference point is at or beyond the end of the evolution, it will be clamped to the final y
+	#the effective reference frequency is then the orbital frequency at y=yf with the reference eccentricity (Eq.(5))
+	ref_clamped = (y_ref >= yf)
+	if ref_clamped: fref_orb_eff = forb_of_y(yf, e2_ref, M)
+	else:           fref_orb_eff = fref_orb
+
+	#estimate the squared eccentricity at the initial frequency with the 0PN evolution from the effective reference
+	#when the reference is at the initial frequency (default), the eccentricity is the reference one and no solve is needed
+	if fref_orb_eff == f0_orb: e2_0_est = e2_ref
+	else:                      e2_0_est = float(compute_e2_of_f_0PN(f0_orb, e2_ref, fref_orb_eff))
+
+	#estimate y at the initial frequency using Eq.(5) and raise if it is not below the final y, before warning about any clamping
+	y0_est = y_of_forb(f0_orb, e2_0_est, M)
+	if y0_est >= yf:
+		raise ValueError("Initial orbital frequency f0_orb=%.3e is at or beyond the end of the evolution (estimated y0=%.3f >= yf=%.3f)"%(f0_orb, y0_est, yf))
+
+	#now that the evolution is known to be viable, clamp the reference point with a warning
+	if ref_clamped:
+		warnings.warn("Reference orbital frequency fref_orb=%.3e is at or beyond the end of the evolution, clamping the reference point to y=yf=%.3f (orbital frequency %.3e)"%(fref_orb, yf, fref_orb_eff), UserWarning, stacklevel=2)
+		y_ref = yf
+
+	#compute reference \lambda
+	l0 = phi_ref
+
+	#compute reference \delta\lambda from above Eq.(17a) of 1801.08542
+	dl0 = phi_ref - phi_e_ref
 
 	#compute the reduced spins as defined in Eq.(7). Note that S = mu^2 spin
-	s0_1, s0_2 = mu1*spin0_1, mu2*spin0_2
+	s0_1, s0_2 = mu1*spin1_ref, mu2*spin2_ref
 	
 	#compute spin components parallel to L0 
 	sz_1 = s0_1[2]
@@ -131,7 +155,7 @@ def initial_conditions_for_RR_eqs(f0_orb, ff_orb, e0, m1, m2, spin0_1, spin0_2, 
 	for iJ in range(DJ2_max_iter):
 	
 		#update MSA class with current values of y and DJ2
-		MSA.update(y0, DJ20)
+		MSA.update(y_ref, DJ20)
 
 		#compute the cos(2*am0) using Eq.(26), i.e. dchi = dchi_av - dchi_diff*cos(2*am0)
 		if MSA.dchi_diff != 0: cos2am0 = max(-1, min(1, MSA.ddchi_av/MSA.dchi_diff))
@@ -147,7 +171,7 @@ def initial_conditions_for_RR_eqs(f0_orb, ff_orb, e0, m1, m2, spin0_1, spin0_2, 
 		if Vol<0: psip0, am0 = -psip0, -am0
 
 		#now compute variation of DJ2 with respect to precession averaged mean
-		dDJ2 = MSA.compute_dDJ2(psip0, e20)
+		dDJ2 = MSA.compute_dDJ2(psip0, e2_ref)
 		
 		#compute new DJ20 using this \delta DJ2
 		DJ20_new = DJ20_OG - dDJ2
@@ -162,7 +186,7 @@ def initial_conditions_for_RR_eqs(f0_orb, ff_orb, e0, m1, m2, spin0_1, spin0_2, 
 	bpsip0 = 0.5*np.pi*psip0/MSA.K_m
 
 	#compute \delta\phi_z and \delta\zeta from Eq.(49) and (52) respectively
-	MSA.update(y0, DJ20)
+	MSA.update(y_ref, DJ20)
 	dphiz0, dzeta0, _ = MSA.precession_Euler_angles(bpsip0)
 
 	#set phiz(t0)=zeta(t0)=0, i.e., initially, L is set to the x'-z' plane of the J-frame
@@ -199,28 +223,27 @@ def initial_conditions_for_RR_eqs(f0_orb, ff_orb, e0, m1, m2, spin0_1, spin0_2, 
 	cos_theta_JN, phi_JN = spherical_coords_from_vec(k_hat_Jframe, return_trigonometric=False)
 	
 	#compute initial conditions on v=[y, e2, l, dl, DJ2, bpsip, phiz0, zeta0]
-	v_ini = np.array([y0,e20,l0,dl0,DJ20,bpsip0,phiz00,zeta00])
+	v_ini = np.array([y_ref,e2_ref,l0,dl0,DJ20,bpsip0,phiz00,zeta00])
 
-	#return relevant parameters and initial conditions
-	return v_ini, yf, s2_1, s2_2, MSA, cos_theta_JN, phi_JN
+	#return relevant parameters and initial conditions, together with the effective (possibly clamped) reference frequency,
+	#the 0PN estimate of the squared eccentricity at f0_orb and the flag indicating whether the reference was clamped
+	return v_ini, yf, s2_1, s2_2, MSA, cos_theta_JN, phi_JN, fref_orb_eff, e2_0_est, ref_clamped
 
 #Function to compute constant part of h0 from Eq.(20) of 2402.06804, i.e. we want to compute  4\sqrt{\pi/5} M \nu/d_L
 # to obtain h0 we have to multiply by (M\omega)**(2/3) = ((1-e2)*(y**2)) (Eq.(5))
 def compute_h0_pref(m1, m2, dL):
 	return 4*((np.pi/5)**0.5)*(m1*m2/(m1+m2))/dL
 
-#function to solve time diferential equations for v(t)=[y, e2, l, dl, DJ2, bpsip, phiz0, zeta0] 
+#function to solve time diferential equations for v(t)=[y, e2, l, dl, DJ2, bpsip, phiz0, zeta0]
 #use scipy solve_ivp and dense output
-#terminate the integration when y reaches y_f
-def solve_ivp_RR_eqs_t(v_ini, PN_derivatives, MSA, yf, rtol=[1e-10, 1e-10, 1e-12, 1e-12, 1e-10, 1e-12, 1e-12, 1e-12], atol=[1e-12, 1e-12,  1e-8,  1e-8, 1e-12,  1e-8,  1e-6,  1e-6], max_duration=None):
-	
-	#for the initial time give the 0PN estimate
-	t0 = tLO_func(v_ini[0], v_ini[1], MSA.m1, MSA.m2)
+#the initial conditions v_ini are given at the effective reference orbital frequency fref_orb (already clamped by initial_conditions_for_RR_eqs when ref_clamped)
+#e2_0_est is the 0PN estimate of the squared eccentricity at f0_orb computed by initial_conditions_for_RR_eqs
+def solve_ivp_RR_eqs_t(v_ini, PN_derivatives, MSA, f0_orb, fref_orb, yf, e2_0_est, ref_clamped, rtol=[1e-10, 1e-10, 1e-12, 1e-12, 1e-10, 1e-12, 1e-12, 1e-12], atol=[1e-12, 1e-12,  1e-8,  1e-8, 1e-12,  1e-8,  1e-6,  1e-6], max_duration=None, e2_max=1-1e-12):
 
 	#function to compute dv/dt
-	def dv_dt(t, v):		
-		#return dv/dy
-		return derivatives_prec_avg(v[0], max(v[1],0), v[4], PN_derivatives, MSA)
+	#e2 is clamped to [0, e2_max], since trial stages can overshoot e2 slightly above 1 or below 0
+	def dv_dt(t, v):
+		return derivatives_prec_avg(v[0], min(max(v[1],0), e2_max), v[4], PN_derivatives, MSA)
 
 	#function to see if y is larger than the termination y=yf
 	def yf_surpassed(t, v):
@@ -229,30 +252,90 @@ def solve_ivp_RR_eqs_t(v_ini, PN_derivatives, MSA, yf, rtol=[1e-10, 1e-10, 1e-12
 	#assign attribute to this function so that termination occurs if y>yf
 	yf_surpassed.terminal = True
 
-	#make sure that initial value of y is smaller than yf so that stopping condition makes sense
-	if v_ini[0]>=yf:
-		raise ValueError("Initial PN parameter larger than final PN parameter (y0=%s >= yf=%s)"%(v_ini[0], yf))
+	#event triggered when the orbital frequency crosses f0_orb, using Eq.(5)
+	def f0_reached(t, v):
+		return forb_of_y(v[0], min(v[1], 1.), MSA.M) - f0_orb
+	f0_reached.terminal = True
 
-	#solve system of differential equations
-	if max_duration is None: tmax = -10*t0
-	else:                    tmax = t0 + max_duration
-	ivp_sol = solve_ivp(dv_dt, [t0, tmax], v_ini, dense_output=True, method='RK45', events=yf_surpassed, rtol=rtol, atol=atol)
+	#for the reference time give the 0PN estimate
+	t_ref = tLO_func(v_ini[0], v_ini[1], MSA.m1, MSA.m2)
+
+	#evaluate the f0_orb-crossing event at the reference state to decide if a pre-evolution/backward leg is needed
+	f_m_f0_ref = f0_reached(t_ref, v_ini)
+
+	#dense backward solutions to stitch before the forward one
+	sols = []
+	#by default, start the forward integration from the reference state, with the initial frequency f0_orb reached at its start
+	t0, v0 = t_ref, v_ini
+	t_start = t_ref
+
+	#if the reference frequency is below the initial frequency, evolve the reference state forward until the orbital frequency reaches f0_orb
+	if (fref_orb < f0_orb) and (f_m_f0_ref < 0):
+		f0_reached.direction = 1
+		pre_sol = solve_ivp(dv_dt, [t_ref, -10*t_ref], v_ini, method='RK45', events=f0_reached, rtol=rtol, atol=atol)
+		if pre_sol.status != 1:
+			raise RuntimeError("Could not evolve the reference state (fref_orb=%.4e) forward to the initial orbital frequency f0_orb=%.4e (solve_ivp status=%s)"%(fref_orb, f0_orb, pre_sol.status))
+		#take the state at f0_orb and re-anchor its time with the 0PN estimate (the time origin is irrelevant, since t is shifted at the end)
+		v0 = pre_sol.y[:,-1]
+		t0 = tLO_func(v0[0], v0[1], MSA.m1, MSA.m2)
+		t_start = t0
+
+	#if the reference frequency is above the initial frequency, integrate backwards until f0_orb and stitch with the forward solution
+	elif (fref_orb > f0_orb) and (f_m_f0_ref > 0):
+		#estimate the time at f0_orb from the 0PN eccentricity estimate e2_0_est to set a generous backward integration horizon
+		t0_est = tLO_func(y_of_forb(f0_orb, e2_0_est, MSA.M), e2_0_est, MSA.m1, MSA.m2)
+
+		#integrate backwards only when the estimated horizon genuinely precedes the reference time
+		if t0_est < t_ref:
+
+			#integrate backwards from the reference state until the orbital frequency reaches f0_orb
+			f0_reached.direction = -1
+			sol_back = solve_ivp(dv_dt, [t_ref, t_ref + 10*(t0_est - t_ref)], v_ini, dense_output=True, method='RK45', events=f0_reached, rtol=rtol, atol=atol)
+			if sol_back.status==-1:
+				raise RuntimeError("Backward ODE integration from the reference frequency fref_orb=%.4e stopped before reaching the initial orbital frequency f0_orb=%.4e because the required step size is below floating-point spacing"%(fref_orb, f0_orb))
+			if sol_back.status!=1:
+				raise RuntimeError("Backward ODE integration from the reference frequency fref_orb=%.4e did not reach the initial orbital frequency f0_orb=%.4e"%(fref_orb, f0_orb))
+
+			#time at which the initial orbital frequency is reached
+			t_start = sol_back.t[-1]
+
+			#make sure that max_duration (measured from f0_orb) allows the evolution to reach the reference frequency
+			if (max_duration is not None) and (t_start + max_duration <= t_ref):
+				raise ValueError("max_duration=%.4es is too short to evolve from the initial frequency f0_orb=%.4e to the reference frequency fref_orb=%.4e (%.4es needed), increase max_duration or decrease f22_ref"%(max_duration, f0_orb, fref_orb, t_ref - t_start))
+
+			#use the backward leg, unless the backward integration terminated immediately (fref_orb barely above f0_orb),
+			#in which case we fall back to the plain forward integration from the reference state
+			if t_start != t_ref:
+				sols = [sol_back.sol]
+				#if the reference point was clamped to the end of the evolution, the solution is the backward leg alone
+				#the final time from coalescence is the 0PN estimate at the reference, i.e. t_ref
+				if ref_clamped:
+					return ivp_sol_interp(sols, t_final=t_ref)
+
+	#make sure that initial value of y is smaller than yf so that stopping condition makes sense
+	if v0[0]>=yf:
+		raise ValueError("Initial PN parameter larger than final PN parameter (y0=%s >= yf=%s)"%(v0[0], yf))
+
+	#solve system of differential equations, with the maximum duration measured from the time f0_orb is reached
+	if max_duration is None: tmax = -10*t_start
+	else:                    tmax = t_start + max_duration
+	ivp_sol = solve_ivp(dv_dt, [t0, tmax], v0, dense_output=True, method='RK45', events=yf_surpassed, rtol=rtol, atol=atol)
 
 	#check if integration was stopped by reaching the end of t_span
 	if ivp_sol.status==0 and max_duration is None:
 		warnings.warn(
 			"ODE integration stopped because the limit time (t=%ss) was reached, with y=%s, yf=%s, "
 			"v_ini=%s, m1=%s, m2=%s, sz_1=%s, sz_2=%s, sp2_1=%s, sp2_2=%s"
-			%(tmax, ivp_sol.y[0,-1], yf, list(v_ini), MSA.m1, MSA.m2, MSA.sz_1, MSA.sz_2, MSA.sp2_1, MSA.sp2_2),
+			%(tmax, ivp_sol.y[0,-1], yf, list(v0), MSA.m1, MSA.m2, MSA.sz_1, MSA.sz_2, MSA.sp2_1, MSA.sp2_2),
 			RuntimeWarning, stacklevel=2)
 	if ivp_sol.status==-1:
 		warnings.warn("ODE integration stopped because the required step size is below floating-point spacing.", RuntimeWarning, stacklevel=2)
-	
+
 	#estimate the value of the final time from coalescence using final y and e2
 	tf = tLO_func(ivp_sol.y[0,-1], ivp_sol.y[1,-1], MSA.m1, MSA.m2)
-	
-	#return an interpolant of the solution using our ivp_sol_interp class setting t=0 to be the coalescence time
-	return ivp_sol_interp(ivp_sol.sol, t_final=tf)
+
+	#return an interpolant of the (stitched) solution using our ivp_sol_interp class setting t=0 to be the coalescence time
+	return ivp_sol_interp(sols + [ivp_sol.sol], t_final=tf)
 
 #solve the system of Eq.(127-128) of arXiv:2106.10291 for the SUA constants a_{k, k_\max}
 #we move all factorials to the l.h.s. to have values closer to 1 in the Matrix of linear system
@@ -1357,6 +1440,14 @@ def tLO_func(y, e2, m1, m2):
 
 	#return the LO time
 	return -(5/256)*(M/nu)*(y**-8)*((1-e2)**-0.5)*F_tLO_series(e2)
+
+#function to compute the PN expansion parameter y from the orbital frequency and the squared eccentricity using Eq.(5)
+def y_of_forb(f_orb, e2, M):
+	return ((2*np.pi*M*f_orb)**(1./3.))/np.sqrt(1 - e2)
+
+#function to compute the orbital frequency from the PN expansion parameter y and the squared eccentricity inverting Eq.(5)
+def forb_of_y(y, e2, M):
+	return (y**3)*((1 - e2)**1.5)/(2*np.pi*M)
 
 #function to compute squared eccentricity as a function of frequency using the leading order (0PN) expressions. See e.g. Eq.(1.2) of 1605.00304.
 def compute_e2_of_f_0PN(f, e20, f0, atol=1e-14, maxiter_Newton=6):

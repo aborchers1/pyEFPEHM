@@ -301,7 +301,7 @@ def compute_quantities_with_pyEFPE(ys, e0, s_1_0, s_2_0, lN_0, nu, dmu, lamb0=0,
 	params = {
 	'mass1': mu1/t_sun_s,
 	'mass2': mu2/t_sun_s,
-        'e_start': e0,
+        'eccentricity': e0,
         'spin1x': chi1_0[0],
         'spin1y': chi1_0[1],
         'spin1z': chi1_0[2],

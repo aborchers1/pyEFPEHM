@@ -39,38 +39,43 @@ class pyEFPE:
 			Mass of companion 1, in solar masses - Required
 		mass2 : float
 			Mass of companion 2, in solar masses - Required
-		e_start : float
-			Initial eccentricity (at f_orbital_start) - Default: 0
+		eccentricity : float
+			Eccentricity at reference frequency - Default: 0
 		spin1x : float
-			x-component of dimensionless spin of companion 1 - Default: 0
+			x-component of dimensionless spin of companion 1 at reference frequency - Default: 0
 		spin1y : float
-			y-component of dimensionless spin of companion 1 - Default: 0
+			y-component of dimensionless spin of companion 1 at reference frequency - Default: 0
 		spin1z : float
-			z-component of dimensionless spin of companion 1 - Default: 0
+			z-component of dimensionless spin of companion 1 at reference frequency - Default: 0
 		spin2x : float
-			x-component of dimensionless spin of companion 2 - Default: 0
+			x-component of dimensionless spin of companion 2 at reference frequency - Default: 0
 		spin2y : float
-			y-component of dimensionless spin of companion 2 - Default: 0
+			y-component of dimensionless spin of companion 2 at reference frequency - Default: 0
 		spin2z : float
-			z-component of dimensionless spin of companion 2 - Default: 0
+			z-component of dimensionless spin of companion 2 at reference frequency - Default: 0
 		distance : float
 			Distance to the source, in Mpc - Default: 100 Mpc
 		inclination : float
-			Angle between orbital angular momentum and vector from binary to observer (N).
+			Angle between orbital angular momentum and vector from binary to observer (N) at reference frequency.
 			Measured in radians, between 0 and Pi. - Default: 0
 		f22_start : float
 			Starting waveform generation frequency of 22 mode, in Hz 
 			We have f_orbital_start = 0.5*f22_start - Default: 20 Hz
+		f22_ref : float
+			Reference waveform frequency of 22 mode, in Hz
+			We have f_orbital_ref = 0.5*f22_ref. If None, then f22_ref = f22_start. - Default: None
 		f22_end : float or None
 			Maximum 22 mode frequency the orbital motion is computed up to, in Hz
 			If it is None, we compute all the way to the ISCO. Otherwise, we have f_orbital_end = min(0.5*f22_end, f_ISCO) - Default: None
 		max_duration : float or None
-			Maximum duration (in seconds) up to which to compute the orbital motion (from f22_start)
+			Maximum duration (in seconds) up to which to compute the orbital motion, measured from f22_start
+			If f22_ref > f22_start, max_duration must be large enough for the evolution to reach f22_ref, otherwise a ValueError is raised
 			If it is None, we compute all the way to the ISCO - Default: None
-		phi_start : float
-			Initial orbital phase, in radians - Default: 0
-		mean_anomaly_start : float
-			Initial mean anomaly of quasi-Keplerian parametrization - Default: 0
+		phase : float
+			Reference orbital phase, in radians - Default: 0
+		mean_anomaly : float
+			Reference mean anomaly of quasi-Keplerian parametrization - Default: 0
+			(The keys e_start, phi_start and mean_anomaly_start are accepted as deprecated aliases of eccentricity, phase and mean_anomaly)
 		mode_array: array_like of shape (N,2) or None
 			Array containing [l, m] GW modes to take into account. Only 1PN modes are implemented ([[2,0],[2,1],[2,2],[3,0],[3,1],[3,2],[3,3],[4,0],[4,2],[4,4]])
 			Repeated modes and modes that are inconsistent with the pn_amplitude_order are removed.
@@ -166,7 +171,7 @@ class pyEFPE:
 			Maximum order kmax to compute the constants a_{k,kmax} (Eq.(127-128) of arXiv:2106.10291) that appear in the Shifted Uniform Asymptotics (SUA) method. - Default: 1
 		"""
 		#dictionary with default params
-		params = {'e_start': 0,
+		params = {'eccentricity': 0,
 		          'spin1x': 0,
 		          'spin1y': 0,
 		          'spin1z': 0,
@@ -176,10 +181,11 @@ class pyEFPE:
 		          'distance': 100,
 		          'inclination': 0,
 		          'f22_start': 20,
+		          'f22_ref': None,
 		          'f22_end': None,
 		          'max_duration': None,
-		          'phi_start': 0,
-		          'mean_anomaly_start': 0,
+		          'phase': 0,
+		          'mean_anomaly': 0,
 		          'mode_array': [[2,0],[2,1],[2,2],[3,0],[3,1],[3,2],[3,3],[4,0],[4,2],[4,4]],
 		          'q1': 1, 'q2': 1, 'o1': 1, 'o2': 1,
 		          'Lambda2_1': 0, 'Lambda2_2': 0, 'Lambda3_1': 0, 'Lambda3_2': 0, 'Sigma2_1': 0, 'Sigma2_2': 0,
@@ -204,14 +210,8 @@ class pyEFPE:
 		          'SUA_kmax': 1,
 		         }
 		
-		#the set of recognised parameter keys (the defaults plus mass1/mass2, which have no default)
-		valid_keys = set(params) | {'mass1', 'mass2'}
-
-		#update default parameters with input parameters
-		params.update(parameters)
-
-		#validate the input parameters (warn on typos / out-of-range values, raise on invalid masses or eccentricity)
-		self._validate_parameters(parameters, params, valid_keys)
+		#validate the input parameters and merge them with the defaults (maps deprecated *_start keys, warns on typos / out-of-range values, raises on invalid masses or eccentricity)
+		params = self._validate_parameters(parameters, params)
 
 		#save parameters
 		self.params = params
@@ -220,7 +220,7 @@ class pyEFPE:
 		#we convert the masses from Msun to seconds
 		self.m1 = t_sun_s*params['mass1']
 		self.m2 = t_sun_s*params['mass2']
-		self.e0 = params['e_start']
+		self.e_ref = params['eccentricity']
 		#Extract the dimensionless component spins (S_i/mu_i^2 = s_i/mu_i)
 		self.spin0_1 = np.array([params['spin1x'], params['spin1y'], params['spin1z']])
 		self.spin0_2 = np.array([params['spin2x'], params['spin2y'], params['spin2z']])
@@ -236,12 +236,14 @@ class pyEFPE:
 		#convert the input luminosity distance from Mpc to s
 		self.dL = Mpc_s*params['distance']
 		self.inclination = params['inclination']
-		#obtain initial and final orbital frequencies from initial and final 22 mode GW frequencies (f_orb = 0.5*f22)
+		#obtain initial, reference, and final orbital frequencies from initial and final 22 mode GW frequencies (f_orb = 0.5*f22)
 		self.f0_orb = 0.5*params['f22_start']
+		if params['f22_ref'] is None: self.fref_orb = self.f0_orb
+		else: self.fref_orb = 0.5*params['f22_ref']
 		if params['f22_end'] is None: self.ff_orb = None
 		else: self.ff_orb = 0.5*params['f22_end']
-		self.phi0 = params['phi_start']
-		self.phi_e0 = params['mean_anomaly_start']
+		self.phi_ref = params['phase']
+		self.phi_e_ref = params['mean_anomaly']
 		if params['mode_array'] is None: params['mode_array'] = [[2,0],[2,1],[2,2],[3,0],[3,1],[3,2],[3,3],[4,0],[4,2],[4,4]]
 		self.mode_array = clean_mode_array(params['mode_array'], pn_amplitude_order=params['pn_amplitude_order'])
 		self.harmonic_array, self.mode_array = process_harmonic_array(params['harmonic_array'], self.mode_array, pn_amplitude_order=params['pn_amplitude_order'])
@@ -250,7 +252,7 @@ class pyEFPE:
 		if self.m2>self.m1:
 			self.m1, self.m2 = self.m2, self.m1
 			self.spin0_1, self.spin0_2 = self.spin0_2, self.spin0_1
-			self.phi0 = self.phi0 + np.pi #flip orbital phase (r -> -r under relabeling). Mean anomaly phi_e0 is unchanged (radial phase from periastron)
+			self.phi_ref = self.phi_ref + np.pi #flip orbital phase (r -> -r under relabeling). Mean anomaly phi_e_ref is unchanged (radial phase from periastron)
 			self.q1, self.q2 = self.q2, self.q1
 			self.o1, self.o2 = self.o2, self.o1
 			self.Lambda2_1,  self.Lambda2_2  =  self.Lambda2_2,  self.Lambda2_1
@@ -261,8 +263,9 @@ class pyEFPE:
 			self.Sigma23_1,  self.Sigma23_2  =  self.Sigma23_2,  self.Sigma23_1
 			self.Sigma32_1,  self.Sigma32_2  =  self.Sigma32_2,  self.Sigma32_1
 		
-		#compute initial conditions, in the following, v=[y, e2, l, dl, DJ2, bpsip, phiz0, zeta0]
-		self.v_ini, self.yf, self.s2_1, self.s2_2, self.MSA, self.cos_theta_JN, self.phi_JN = initial_conditions_for_RR_eqs(self.f0_orb, self.ff_orb, self.e0, self.m1, self.m2, self.spin0_1, self.spin0_2, self.inclination, self.phi0, self.phi_e0, DJ2_tol=params['DJ2_tol'], pn_spin_order=params['pn_spin_order'])
+		#compute initial conditions for RK, in the following, v=[y, e2, l, dl, DJ2, bpsip, phiz0, zeta0]
+		#also obtain the effective (possibly clamped) reference frequency, the 0PN squared eccentricity estimate at f22_start and the clamping flag
+		self.v_ini, self.yf, self.s2_1, self.s2_2, self.MSA, self.cos_theta_JN, self.phi_JN, self.fref_orb_eff, self.e2_0_est, self.ref_clamped = initial_conditions_for_RR_eqs(self.f0_orb, self.fref_orb, self.ff_orb, self.e_ref, self.m1, self.m2, self.spin0_1, self.spin0_2, self.inclination, self.phi_ref, self.phi_e_ref, DJ2_tol=params['DJ2_tol'], pn_spin_order=params['pn_spin_order'])
 
 		#initialize class to compute PN derivatives
 		self.PN_derivatives = pyEFPE_PN_derivatives(self.m1, self.m2, self.s2_1, self.s2_2, q1=self.q1, q2=self.q2, o1=self.o1, o2=self.o2,
@@ -298,7 +301,7 @@ class pyEFPE:
 		self.h0_pref  = compute_h0_pref(self.m1, self.m2, self.dL)
 		
 		#compute the solution of v(t)=[y, e2, l, dl, DJ2, bpsip, phiz0, zeta0] from Eqs.(101-109) of 2106.10291
-		self.sol      = solve_ivp_RR_eqs_t(self.v_ini, self.PN_derivatives, self.MSA, self.yf,
+		self.sol      = solve_ivp_RR_eqs_t(self.v_ini, self.PN_derivatives, self.MSA, self.f0_orb, self.fref_orb_eff, self.yf, self.e2_0_est, self.ref_clamped,
 		                              rtol=params['RR_sol_rtol'], atol=params['RR_sol_atol'], max_duration=params['max_duration'])
 		
 		#compute the SUA constants a_{k,k_max} by solving a system similar to Eq.(127-128) of arXiv:2106.10291
@@ -426,17 +429,39 @@ class pyEFPE:
 		else:
 			self.compute_Nlm_p = self.compute_Nlm_p_exact
 
-	#validate the user-provided parameter dictionary: warn on unrecognised keys and check physical ranges
+	#validate the user-provided parameter dictionary and merge it with the defaults: map deprecated *_start keys, warn on unrecognised keys and check physical ranges
+	#returns the merged parameter dictionary
 	@staticmethod
-	def _validate_parameters(parameters, params, valid_keys):
+	def _validate_parameters(parameters, params):
+
+		#map the deprecated *_start keys to the new keys they correspond to
+		legacy_keys = {'e_start': 'eccentricity', 'phi_start': 'phase', 'mean_anomaly_start': 'mean_anomaly'}
+		parameters = dict(parameters)
+		for old_key, new_key in legacy_keys.items():
+			if old_key in parameters:
+				if new_key in parameters: raise ValueError("Both '%s' and its deprecated alias '%s' were passed, use only '%s'."%(new_key, old_key, new_key))
+				warnings.warn("pyEFPE parameter '%s' is deprecated, its value will be used as '%s'; pass '%s' directly in the future."%(old_key, new_key, new_key), DeprecationWarning, stacklevel=3)
+				parameters[new_key] = parameters.pop(old_key)
+
+		#the set of recognised parameter keys (the defaults plus mass1/mass2, which have no default)
+		valid_keys = set(params) | {'mass1', 'mass2'}
 
 		#warn about unrecognised parameter keys (likely typos), which would otherwise be silently ignored
 		unknown_keys = set(parameters) - valid_keys
 		if unknown_keys: warnings.warn("Ignoring unrecognised pyEFPE parameter(s) %s (possible typo); they have no effect."%(sorted(unknown_keys)), UserWarning, stacklevel=3)
 
-		#masses must be positive and the initial eccentricity in [0, 1)
+		#update default parameters with input parameters
+		params.update(parameters)
+
+		#masses must be positive and the reference eccentricity in [0, 1)
 		if (params['mass1']<=0) or (params['mass2']<=0): raise ValueError("mass1 and mass2 must be positive (got mass1=%s, mass2=%s)."%(params['mass1'], params['mass2']))
-		if not (0<=params['e_start']<1): raise ValueError("e_start must be in [0, 1) (got e_start=%s)."%(params['e_start']))
+		if not (0<=params['eccentricity']<1): raise ValueError("eccentricity must be in [0, 1) (got eccentricity=%s)."%(params['eccentricity']))
+
+		#checks on the reference frequency, if given
+		if params['f22_ref'] is not None:
+			if params['f22_ref']<=0: raise ValueError("f22_ref must be positive (got f22_ref=%s)."%(params['f22_ref']))
+			if params['f22_ref']<params['f22_start']:
+				warnings.warn("f22_ref=%s is below f22_start=%s; the reference state will be evolved forward to f22_start before starting waveform generation."%(params['f22_ref'], params['f22_start']), UserWarning, stacklevel=3)
 
 		#warn if either dimensionless spin magnitude exceeds the Kerr bound |chi|<=1
 		chi1_sq = params['spin1x']**2 + params['spin1y']**2 + params['spin1z']**2
@@ -453,6 +478,9 @@ class pyEFPE:
 				warnings.warn("horizon_absorption=True has no effect when pn_spin_order<5 (HA enters at 2.5PN).", UserWarning, stacklevel=3)
 			elif (not (0<=params['pn_tidal_order']<10)) and ((params['Lambda2_1']!=0) or (params['Lambda2_2']!=0)):
 				warnings.warn("horizon_absorption=True applies black-hole horizon flux to a component with nonzero tidal Lambda2.", UserWarning, stacklevel=3)
+
+		#return the merged parameter dictionary
+		return params
 
 	#function to compute stationary times given an input array of frequencies (see Eq.(46) of arXiv:1801.08542)
 	def stationary_times(self, freqs, rtol=1e-12, max_iter=3):

@@ -30,13 +30,29 @@ import multiprocessing as mp
 t_sun_s = 4.92549094831e-6  #GMsun/c**3 [s]
 
 #dictionary of variable names as pyEFPE keys
-pyEFPE_keys = {'mass1': 'm1', 'mass2': 'm2', 'e_start': 'ecc', 'mean_anomaly_start':'mean_anomaly', 'spin1x': 's1x', 'spin1y': 's1y', 'spin1z': 's1z', 'spin2x': 's2x', 'spin2y': 's2y', 'spin2z': 's2z', 'inclination': 'iota', 'phi_start': 'phiref'}
+pyEFPE_keys = {'mass1': 'm1', 'mass2': 'm2', 'eccentricity': 'ecc', 'mean_anomaly':'mean_anomaly', 'spin1x': 's1x', 'spin1y': 's1y', 'spin1z': 's1z', 'spin2x': 's2x', 'spin2y': 's2y', 'spin2z': 's2z', 'inclination': 'iota', 'phase': 'phiref'}
+
+#dictionary mapping the new parameter keys to the legacy *_start keys understood by the old pyEFPE package
+legacy_pyEFPE_keys = {'eccentricity': 'e_start', 'phase': 'phi_start', 'mean_anomaly': 'mean_anomaly_start'}
+
+#function to translate a pyEFPEHM parameter dictionary to the legacy keys of the old pyEFPE package
+#the old package silently ignores unknown keys, so the new keys have to be renamed for it
+def to_legacy_pyEFPE_params(p_pyEFPE):
+	#the old package has no notion of a reference frequency, so a set f22_ref cannot be translated
+	#fail loudly instead of silently comparing waveforms anchored at different frequencies
+	if p_pyEFPE.get('f22_ref') is not None:
+		raise ValueError("f22_ref=%s cannot be translated to the legacy pyEFPE package, which only supports parameters defined at f22_start"%(p_pyEFPE['f22_ref']))
+	p_legacy = dict(p_pyEFPE)
+	p_legacy.pop('f22_ref', None)
+	for new_key, old_key in legacy_pyEFPE_keys.items():
+		if new_key in p_legacy: p_legacy[old_key] = p_legacy.pop(new_key)
+	return p_legacy
 
 #dictionary with CBC variables for evaluation
 param_keys = ['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z', 'iota', 'phiref', 'pol', 'f_max', 'ecc', 'mean_anomaly']
 
 #names of parameters to minimize over for stringID
-minimize_parameter_names = {'phi_start':'p0', 'phase_s': 'pS', 'phase_s1': 'pS1', 'phase_s2': 'pS2', 'e_start': 'e0', 'mean_anomaly_start': 'l0',}
+minimize_parameter_names = {'phase':'p0', 'phase_s': 'pS', 'phase_s1': 'pS1', 'phase_s2': 'pS2', 'eccentricity': 'e0', 'mean_anomaly': 'l0',}
 
 #function to compute the time to ISCO given an initial frequency and component masses (in solar masses)
 def t_to_ISCO_0PN(f0, m1, m2):
@@ -603,13 +619,13 @@ def determine_pyEFPE_bounds(parameter_names, pyEFPE_params, rtol_e=0.3, rtol_p=0
 
 		#for angles we can consider their full range
 		#some of them span [0, 2\pi]
-		if pname in ['phi_start', 'phase_s', 'phase_s1', 'phase_s2', 'mean_anomaly_start']:
+		if pname in ['phase', 'phase_s', 'phase_s1', 'phase_s2', 'mean_anomaly']:
 			bounds.append((0, 2*np.pi))
 		#some [0, \pi]
 		elif pname in ['inclination', 'pol']:
 			bounds.append((0, np.pi))
 		#for eccentricity consider the range specified by the relative tolerance
-		elif pname == 'e_start':
+		elif pname == 'eccentricity':
 			e = pyEFPE_params[pname]
 			emin = max(e*(1 - rtol_e),    0.)
 			emax = min(e*(1 + rtol_e), max_e)
@@ -644,7 +660,7 @@ def pyEFPE_like_generator(approx_string, freqs, params_pyEFPE, f_min_gen_fact=No
 	
 	#cases where the approximant is pyEFPE or pyEFPEHM
 	if approx_string=="pyEFPE":
-		return pyEFPE.pyEFPE(p_pyEFPE).generate_waveform(freqs)
+		return pyEFPE.pyEFPE(to_legacy_pyEFPE_params(p_pyEFPE)).generate_waveform(freqs)
 	elif approx_string=="pyEFPEHM":
 		return pyEFPEHM.pyEFPE(p_pyEFPE).generate_waveform(freqs)
 	#cases where approximant is not in pyEFPE family
@@ -716,8 +732,8 @@ def pyEFPE_like_generator(approx_string, freqs, params_pyEFPE, f_min_gen_fact=No
 		return approx_func(p_pyEFPE['mass1'], p_pyEFPE['mass2'],
 		                   p_pyEFPE['spin1x'], p_pyEFPE['spin1y'], p_pyEFPE['spin1z'],
 		                   p_pyEFPE['spin2x'], p_pyEFPE['spin2y'], p_pyEFPE['spin2z'],
-		                   p_pyEFPE['distance'], p_pyEFPE['inclination'], p_pyEFPE['phi_start'], 0,
-		                   p_pyEFPE['e_start'], p_pyEFPE['mean_anomaly_start'],
+		                   p_pyEFPE['distance'], p_pyEFPE['inclination'], p_pyEFPE['phase'], 0,
+		                   p_pyEFPE['eccentricity'], p_pyEFPE['mean_anomaly'],
 		                   df, freqs[0], freqs[-1]+df, p_pyEFPE['f22_start'], waveform_dictionary, approximant, f_min_gen_fact=f_min_gen_fact)
 
 #function to initialize signal waveform, return function that take a dictionary p with keys ['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z', 'iota', 'phiref', 'pol', 'f_max'] and outputs a waveform

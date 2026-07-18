@@ -148,7 +148,7 @@ except:
 		#put the params to pass to pyEFPE in dictionary
 		params_pyEFPE['mass1'] = m1
 		params_pyEFPE['mass2'] = m2
-		params_pyEFPE['e_start'] = e
+		params_pyEFPE['eccentricity'] = e
 		params_pyEFPE['spin1x'] = s1x
 		params_pyEFPE['spin1y'] = s1y
 		params_pyEFPE['spin1z'] = s1z
@@ -156,8 +156,8 @@ except:
 		params_pyEFPE['spin2y'] = s2y
 		params_pyEFPE['spin2z'] = s2z
 		params_pyEFPE['inclination'] = iota
-		params_pyEFPE['phi_start'] = phiref
-		params_pyEFPE['mean_anomaly_start'] = mean_anomaly
+		params_pyEFPE['phase'] = phiref
+		params_pyEFPE['mean_anomaly'] = mean_anomaly
 		all_params_pyEFPE.append(params_pyEFPE.copy())
 		
 		#Initialize reference pyEFPE waveform

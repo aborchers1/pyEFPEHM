@@ -15,18 +15,22 @@ def EFPE_params_from_bilby(mass_1, mass_2, luminosity_distance, a_1, tilt_1, phi
 	#put some default parameters to call pyEFPE that will be used in this function
 	params = {'mass1': mass_1,
 	          'mass2': mass_2,
-	          'e_start': eccentricity,
+	          'eccentricity': eccentricity,
 	          'distance': luminosity_distance,
 	          'f22_start': default_f22_start,
-	          'phi_start': phase,
-	          'mean_anomaly_start': mean_anomaly,
+	          'f22_ref': None,
+	          'phase': phase,
+	          'mean_anomaly': mean_anomaly,
 	         }
 
 	#update them with input kwargs
 	params.update(kwargs)
 
+	#the spins are defined at the reference frequency, which defaults to the starting frequency
+	f22_spin_ref = params['f22_ref'] if params['f22_ref'] is not None else params['f22_start']
+
 	#convert spins from spherical to cartesian
-	iota, spin_1x, spin_1y, spin_1z, spin_2x, spin_2y, spin_2z = bilby_to_lalsimulation_spins(theta_jn=theta_jn, phi_jl=phi_jl, tilt_1=tilt_1, tilt_2=tilt_2, phi_12=phi_12, a_1=a_1, a_2=a_2, mass_1=mass_1*MSUN_SI, mass_2=mass_2*MSUN_SI, reference_frequency=params['f22_start'], phase=phase)
+	iota, spin_1x, spin_1y, spin_1z, spin_2x, spin_2y, spin_2z = bilby_to_lalsimulation_spins(theta_jn=theta_jn, phi_jl=phi_jl, tilt_1=tilt_1, tilt_2=tilt_2, phi_12=phi_12, a_1=a_1, a_2=a_2, mass_1=mass_1*MSUN_SI, mass_2=mass_2*MSUN_SI, reference_frequency=f22_spin_ref, phase=phase)
 
 	#now put all missing parameters in the parameter dictionary
 	params['spin1x'] = spin_1x
@@ -46,7 +50,10 @@ def _resolve_bilby_kwargs(frequency_array, kwargs):
 
 	#pop bilby-internal keys so they do not leak into the pyEFPE parameter dictionary
 	frequencies = kwargs.pop('frequencies', None)
-	kwargs.pop('reference_frequency', None)
+	#map the bilby reference frequency to f22_ref, unless f22_ref was passed explicitly in the waveform arguments
+	#in the LAL convention reference_frequency=0 means that the parameters are defined at the start frequency, which is the f22_ref=None default
+	reference_frequency = kwargs.pop('reference_frequency', None)
+	if (reference_frequency is not None) and (reference_frequency != 0) and ('f22_ref' not in kwargs): kwargs['f22_ref'] = reference_frequency
 	kwargs.pop('waveform_approximant', None)
 	kwargs.pop('minimum_frequency', None)
 	kwargs.pop('maximum_frequency', None)
@@ -55,7 +62,7 @@ def _resolve_bilby_kwargs(frequency_array, kwargs):
 	#Bilby sometimes passes frequencies in kwargs and these take precedent over frequency_array
 	if frequencies is not None: frequency_array = frequencies
 
-	return frequency_array, catch_waveform_errors
+	return frequency_array, kwargs, catch_waveform_errors
 
 
 # Function to handle a waveform-generation exception following bilby conventions
@@ -69,7 +76,7 @@ def _handle_waveform_error(e, params, catch_waveform_errors):
 	                         spin_1=(params['spin1x'], params['spin1y'], params['spin1z']),
 	                         spin_2=(params['spin2x'], params['spin2y'], params['spin2z']),
 	                         distance=params['distance'], iota=params['inclination'],
-	                         eccentricity=params['e_start'], start_frequency=params['f22_start'])
+	                         eccentricity=params['eccentricity'], start_frequency=params['f22_start'])
 	logger.warning("Evaluating the waveform failed with error: {}\n".format(e) +
 	               "The parameters were {}\n".format(failed_parameters) +
 	               "Likelihood will be set to -inf.")
@@ -80,7 +87,7 @@ def _handle_waveform_error(e, params, catch_waveform_errors):
 def EFPE_binary_black_hole(frequency_array, mass_1, mass_2, luminosity_distance, a_1, tilt_1, phi_12, a_2, tilt_2, phi_jl, theta_jn, phase, eccentricity, mean_anomaly, **kwargs):
 
 	#strip bilby-internal kwargs and resolve the frequency array
-	frequency_array, catch_waveform_errors = _resolve_bilby_kwargs(frequency_array, kwargs)
+	frequency_array, kwargs, catch_waveform_errors = _resolve_bilby_kwargs(frequency_array, kwargs)
 
 	#compute EFPE parameter dictionary from bilby inputs
 	params = EFPE_params_from_bilby(mass_1, mass_2, luminosity_distance, a_1, tilt_1, phi_12, a_2, tilt_2, phi_jl, theta_jn, phase, eccentricity, mean_anomaly, **kwargs)

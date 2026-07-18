@@ -88,6 +88,11 @@ mc_high_of_seglen = {4: 20, 8: 12, 16: 8, 32:   5, 64: 3.3, 128: 2.2, 256:  1.4}
 
 ############################################################################
 
+#function to prepare the parameters for a given pyEFPE module, translating to the legacy keys when it is the old pyEFPE package
+def params_for_pyEFPE_module(module, params):
+	if module.__name__ == 'pyEFPE': return to_legacy_pyEFPE_params(params)
+	return params
+
 #function to evaluate and time pyEFPE using multiple tries
 #we pick the timings of the case with the smallest total evaluation time
 def evaluate_and_time_pyEFPE(pyEFPE_class, params, Ntries=5):
@@ -253,7 +258,7 @@ except:
 		#put the params to pass to pyEFPE in dictionary
 		params_pyEFPE_1['mass1'] = m1
 		params_pyEFPE_1['mass2'] = m2
-		params_pyEFPE_1['e_start'] = e
+		params_pyEFPE_1['eccentricity'] = e
 		params_pyEFPE_1['spin1x'] = s1x
 		params_pyEFPE_1['spin1y'] = s1y
 		params_pyEFPE_1['spin1z'] = s1z
@@ -261,17 +266,17 @@ except:
 		params_pyEFPE_1['spin2y'] = s2y
 		params_pyEFPE_1['spin2z'] = s2z
 		params_pyEFPE_1['inclination'] = iota
-		params_pyEFPE_1['phi_start'] = phiref
-		params_pyEFPE_1['mean_anomaly_start'] = mean_anomaly
+		params_pyEFPE_1['phase'] = phiref
+		params_pyEFPE_1['mean_anomaly'] = mean_anomaly
 		all_params_pyEFPE_1.append(params_pyEFPE_1.copy())
 		
 		#update necessary params for pyEFPE_2
 		params_pyEFPE_2 = params_pyEFPE_1.copy()
 		params_pyEFPE_2.update(update_params_pyEFPE_2)
 		
-		#evaluate pyEFPE waveforms
-		(hp_1, hc_1), (ini_runtime_1, h_runtime_1, tot_runtime_1) = evaluate_and_time_pyEFPE(pyEFPE_1.pyEFPE, params_pyEFPE_1, Ntries=Ntries_timings)
-		(hp_2, hc_2), (ini_runtime_2, h_runtime_2, tot_runtime_2) = evaluate_and_time_pyEFPE(pyEFPE_2.pyEFPE, params_pyEFPE_2, Ntries=Ntries_timings)
+		#evaluate pyEFPE waveforms, translating the parameters to the legacy keys when the module is the old pyEFPE package
+		(hp_1, hc_1), (ini_runtime_1, h_runtime_1, tot_runtime_1) = evaluate_and_time_pyEFPE(pyEFPE_1.pyEFPE, params_for_pyEFPE_module(pyEFPE_1, params_pyEFPE_1), Ntries=Ntries_timings)
+		(hp_2, hc_2), (ini_runtime_2, h_runtime_2, tot_runtime_2) = evaluate_and_time_pyEFPE(pyEFPE_2.pyEFPE, params_for_pyEFPE_module(pyEFPE_2, params_pyEFPE_2), Ntries=Ntries_timings)
 		
 		#save runtimes
 		wf_run_times[iparam] = [ini_runtime_1, h_runtime_1, tot_runtime_1, ini_runtime_2, h_runtime_2, tot_runtime_2]

@@ -42,7 +42,7 @@ approximant = 'SpinTaylorT4',
 pn_spin_order = 4,
 pn_phase_order = 7,
 pn_amplitude_order = 2,
-minimize_parameters = ['phi_start', 'phase_s'],
+minimize_parameters = ['phase', 'phase_s'],
 params_pyEFPE = {},
 precessing = True,
 flim_type = 'ISCO'
@@ -60,7 +60,7 @@ approximant = 'SEOBNRv5EHM',
 pn_spin_order = 8,
 pn_phase_order = 9,
 pn_amplitude_order = 2,
-minimize_parameters = ['phi_start', 'e_start', 'mean_anomaly_start'],
+minimize_parameters = ['phase', 'eccentricity', 'mean_anomaly'],
 params_pyEFPE = {'mode_array': [[2,1],[2,2],[3,2],[3,3],[4,4]],},
 precessing = False,
 flim_type = 'MECO'
@@ -70,7 +70,7 @@ comparison_info["SEOBNRv5PHM"] = comparison_info["SEOBNRv5EHM"].copy()
 comparison_info["SEOBNRv5PHM"].update(dict(
 ecc_high = 0,
 approximant = 'SEOBNRv5PHM',
-minimize_parameters = ['phi_start', 'phase_s'],
+minimize_parameters = ['phase', 'phase_s'],
 precessing = True,
 ))
 
@@ -81,7 +81,7 @@ approximant = 'SEOBNRv6EHM',
 pn_spin_order = 8,
 pn_phase_order = 9,
 pn_amplitude_order = 2,
-minimize_parameters = ['phi_start', 'e_start', 'mean_anomaly_start'],
+minimize_parameters = ['phase', 'eccentricity', 'mean_anomaly'],
 params_pyEFPE = {'mode_array': [[2,1],[2,2],[3,2],[3,3],[4,4]],},
 precessing = False,
 flim_type = 'MECO'
@@ -90,7 +90,7 @@ flim_type = 'MECO'
 comparison_info["SEOBNRv6EPHM"] = comparison_info["SEOBNRv6EHM"].copy()
 comparison_info["SEOBNRv6EPHM"].update(dict(
 approximant = 'SEOBNRv6EPHM',
-minimize_parameters = ['phi_start', 'phase_s', 'e_start', 'mean_anomaly_start'],
+minimize_parameters = ['phase', 'phase_s', 'eccentricity', 'mean_anomaly'],
 precessing = True,
 ))
 
@@ -101,7 +101,7 @@ approximant = 'TEOBResumS',
 pn_spin_order = 8,
 pn_phase_order = 9,
 pn_amplitude_order = 2,
-minimize_parameters = ['phi_start', 'phase_s', 'e_start', 'mean_anomaly_start'],
+minimize_parameters = ['phase', 'phase_s', 'eccentricity', 'mean_anomaly'],
 params_pyEFPE = {'mode_array': [[2,1],[2,2],[3,1],[3,2],[3,3],[4,2],[4,4]],},
 precessing = True,
 flim_type = 'MECO'
@@ -109,7 +109,7 @@ flim_type = 'MECO'
 
 comparison_info["TEOBResumS_EHM"] = comparison_info["TEOBResumS_EPHM"].copy()
 comparison_info["TEOBResumS_EHM"].update(dict(
-minimize_parameters = ['phi_start', 'e_start', 'mean_anomaly_start'],
+minimize_parameters = ['phase', 'eccentricity', 'mean_anomaly'],
 precessing = False,
 ))
 
@@ -237,10 +237,10 @@ if __name__ == "__main__":
 		plt.savefig(plots_dir+'mismatches_ecc_q'+string_id+'.pdf')
 
 	#if we have performed eccentricity minimization, compare eccentricities of both models
-	if "e_start" in minimize_parameters:
+	if "eccentricity" in minimize_parameters:
 
 		#extract the best fit pyEFPE eccentricity
-		e_pyEFPE = np.array([params_pyEFPE_i['e_start'] for params_pyEFPE_i in samples['all_params_pyEFPE']])
+		e_pyEFPE = np.array([params_pyEFPE_i['eccentricity'] for params_pyEFPE_i in samples['all_params_pyEFPE']])
 
 		#find maximum eccentricity to consider
 		e_max = max(ecc_high, np.amax(e_pyEFPE))

@@ -154,13 +154,13 @@ def compute_pyEFPE_params_from_sim(sim_params, M=1, theta=0, phi=0, dL=10, eccen
 	s2_vec = np.dot(R_inertial_to_L, sim_params['reference_dimensionless_spin2'])
 	
 	#extract eccentricity and mean anomaly
-	e_start = sim_params['reference_eccentricity']
-	mean_anomaly_start = sim_params['reference_mean_anomaly']
+	eccentricity = sim_params['reference_eccentricity']
+	mean_anomaly = sim_params['reference_mean_anomaly']
 
 	#When required, force parameters to be exactly quasi-circular and/or spin-aligned
 	if not eccentric:
-		if e_start>0.01: print("Warning: System is eccentric (ecc=%.4g) but, as requested, eccentricity will be set to 0."%(e_start))
-		e_start, mean_anomaly_start = 0., 0.
+		if eccentricity>0.01: print("Warning: System is eccentric (ecc=%.4g) but, as requested, eccentricity will be set to 0."%(eccentricity))
+		eccentricity, mean_anomaly = 0., 0.
 	if not precessing:
 		s1_perp, s2_perp = np.linalg.norm(s1_vec[:2]), np.linalg.norm(s2_vec[:2])
 		if (s1_perp>1e-4) or (s2_perp>1e-4): print("Warning: System is precessing (s1_perp=%.4g, s2_perp=%.4g) but, as requested, perpendicular spins will be set to 0."%(s1_perp, s2_perp))
@@ -170,7 +170,7 @@ def compute_pyEFPE_params_from_sim(sim_params, M=1, theta=0, phi=0, dL=10, eccen
 	return {
 	'mass1': q*M/(1+q),
 	'mass2': M/(1+q),
-	'e_start': e_start,
+	'eccentricity': eccentricity,
 	'spin1x': s1_vec[0],
 	'spin1y': s1_vec[1],
 	'spin1z': s1_vec[2],
@@ -179,8 +179,8 @@ def compute_pyEFPE_params_from_sim(sim_params, M=1, theta=0, phi=0, dL=10, eccen
 	'spin2z': s2_vec[2],
 	'inclination': inclination,
 	'f22_start': avg_forb_ref/(np.pi*M*t_sun_s),
-	'phi_start': 0.,
-	'mean_anomaly_start': mean_anomaly_start,
+	'phase': 0.,
+	'mean_anomaly': mean_anomaly,
 	'distance': dL,
 	}
 
@@ -188,11 +188,11 @@ def compute_pyEFPE_params_from_sim(sim_params, M=1, theta=0, phi=0, dL=10, eccen
 def choose_minimize_parameters(eccentric=True, precessing=True, minimize_f22_start=True):
 
 	#parameters to always minimize over
-	minimize_parameters = ['phi_start']
+	minimize_parameters = ['phase']
 
 	#add parameters to minimize over for eccentric and or precessing systems
 	if precessing: minimize_parameters += ['phase_s']
-	if eccentric:  minimize_parameters += ['e_start', 'mean_anomaly_start']
+	if eccentric:  minimize_parameters += ['eccentricity', 'mean_anomaly']
 	#when eccentric or when required, minimize over f22_start
 	if eccentric or minimize_f22_start: minimize_parameters += ['f22_start']
 
@@ -493,7 +493,7 @@ if __name__ == "__main__":
 
 			#Initialize pyEFPE waveform generator
 			if   approx_string=="pyEFPEHM": wf_minMM = pyEFPEHM.pyEFPE(result['min_pyEFPE_params'][ic])
-			elif approx_string=="pyEFPE"  : wf_minMM =   pyEFPE.pyEFPE(result['min_pyEFPE_params'][ic])
+			elif approx_string=="pyEFPE"  : wf_minMM =   pyEFPE.pyEFPE(to_legacy_pyEFPE_params(result['min_pyEFPE_params'][ic]))
 			#if the time-domain computation of the waveform is not implemented, show plots and continue
 			else:
 				print("Time domain plots for %s not implemented"%(approx_string))

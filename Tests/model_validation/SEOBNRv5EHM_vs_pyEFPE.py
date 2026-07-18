@@ -71,8 +71,8 @@ def td_to_fd(hp_td, hc_td, f_min, f_max, max_alpha=0.05, apply_tukey=True, asym_
 def mismatch_t_ph_amp_pol_minimized_varying_ecc_ell(ecc_ell, signal, freqs, p_pyEFPE, asd, return_optimum_params=False):
 	
 	#update relevant pyEFPE parameters
-	p_pyEFPE['e_start'] = ecc_ell[0]
-	p_pyEFPE['mean_anomaly_start'] = ecc_ell[1]
+	p_pyEFPE['eccentricity'] = ecc_ell[0]
+	p_pyEFPE['mean_anomaly'] = ecc_ell[1]
 	
 	#Initialize pyEFPE waveform
 	wf = pyEFPEHM.pyEFPE(p_pyEFPE)
@@ -90,7 +90,7 @@ def minimize_eccentric_mismatch_pyEFPE(signal, freqs, pyEFPE_params, asd=None, d
 	p_pyEFPE = pyEFPE_params.copy()
 	
 	#compute grid of eccentricity and mean anomaly to minimize over
-	emin, emax = np.maximum(0, pyEFPE_params['e_start'] + Delta_e*np.array([-1, 1]))
+	emin, emax = np.maximum(0, pyEFPE_params['eccentricity'] + Delta_e*np.array([-1, 1]))
 	ellmin, ellmax = 0, 2*np.pi
 
 	minimize_result = differential_evolution(mismatch_t_ph_amp_pol_minimized_varying_ecc_ell, [(emin, emax), (ellmin, ellmax)], args=(signal, freqs, p_pyEFPE, asd), disp=disp, workers=workers)
@@ -205,7 +205,7 @@ base_pyEFPE_params_dict = {
     "f22_start": f22_start,
     "distance": distance,
     "inclination": inclination,
-    "mean_anomaly_start": rel_anomaly,
+    "mean_anomaly": rel_anomaly,
     "pn_phase_order": pn_phase_order,
     "pn_spin_order": pn_spin_order,
     "pn_amplitude_order": pn_amplitude_order,
@@ -230,7 +230,7 @@ except:
 
 		# Create dictionary with pyEFPE parameters
 		pyEFPE_params_dict = base_pyEFPE_params_dict.copy()
-		pyEFPE_params_dict["e_start"] = eccentricity
+		pyEFPE_params_dict["eccentricity"] = eccentricity
 
 		#time waveform generation
 		start_evaltime = time.time()
@@ -324,7 +324,7 @@ for eccentricity in eccentricities:
 
 	# Create dictionary with pyEFPE parameters
 	pyEFPE_params_dict = base_pyEFPE_params_dict.copy()
-	pyEFPE_params_dict["e_start"] = eccentricity
+	pyEFPE_params_dict["eccentricity"] = eccentricity
 
 	#time waveform generation
 	start_evaltime = time.time()
@@ -357,8 +357,8 @@ for eccentricity in eccentricities:
 			print('min_mm=%s, min_ecc=%s'%(min_mm, min_ecc))
 			print('dt_shift=%.3g, ang_sh=%.3g, amp_sh=%.3g'%(dt_shift, ang_sh, amp_sh))
 			#update relevant pyEFPE parameters
-			pyEFPE_params_dict['e_start'] = min_ecc
-			pyEFPE_params_dict['mean_anomaly_start'] = min_ell
+			pyEFPE_params_dict['eccentricity'] = min_ecc
+			pyEFPE_params_dict['mean_anomaly'] = min_ell
 			
 			#Initialize pyEFPE waveform
 			wf = pyEFPEHM.pyEFPE(pyEFPE_params_dict)

@@ -41,7 +41,7 @@ if pyEFPE_params is None:
 	chi_1_0, chi_2_0 = a_1*chi_1_0/np.linalg.norm(chi_1_0), a_2*chi_2_0/np.linalg.norm(chi_2_0)
 else:
 	#extract initial eccentricity
-	e0 = pyEFPE_params['e_start']
+	e0 = pyEFPE_params['eccentricity']
 	#compute initial PN parameter
 	y0 = ((np.pi*pyEFPE_params['f22_start']*(pyEFPE_params['mass1'] + pyEFPE_params['mass2'])*t_sun_s)**(1./3.))/np.sqrt(1 - e0*e0)
 	#compute mass ratio

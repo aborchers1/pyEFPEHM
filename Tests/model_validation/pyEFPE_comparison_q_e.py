@@ -51,7 +51,7 @@ def horizon_absorption_dphasing(p_pyEFPE):
 	kHA = (dmu + (9./8.)*(s2_1 - s2_2))*dchi + chi_eff*(1 - 2*nu + (9./8.)*(s2_1 + s2_2) + (45./16.)*dchi*dchi + (15./16.)*chi_eff*chi_eff)
 
 	#compute initial PN parameter
-	e20 = p_pyEFPE['e_start']*p_pyEFPE['e_start']
+	e20 = p_pyEFPE['eccentricity']*p_pyEFPE['eccentricity']
 	y0 = ((np.pi*M*p_pyEFPE['f22_start'])**(1/3))/np.sqrt(1 - e20)
 	#compute final PN parameter
 	if 'f22_end' in p_pyEFPE:
@@ -107,7 +107,7 @@ def batched_bo_minimize_mismatch(signal, freqs, pyEFPE_params, minimize_paramete
 		periodic_dims = list()
 		periods = list()
 		for ip, pname in enumerate(minimize_parameters):
-			if pname in ['phi_start', 'phase_s', 'phase_s1', 'phase_s2', 'mean_anomaly_start', 'inclination', 'pol']:
+			if pname in ['phase', 'phase_s', 'phase_s1', 'phase_s2', 'mean_anomaly', 'inclination', 'pol']:
 				periodic_dims.append(ip)
 				if pname in ['pol']: periods.append(  np.pi)
 				else :               periods.append(2*np.pi)
@@ -141,8 +141,8 @@ pyEFPE_1 = pyEFPEHM,
 pyEFPE_2 = pyEFPEHM,
 params_pyEFPE_1 = {'horizon_absorption': True,},
 update_params_pyEFPE_2 = {'horizon_absorption': False,},
-minimize_parameters = ['phi_start', 'phase_s', 'mean_anomaly_start'],
-base_pyEFPE_params = dict(spin1x=-0.2, spin1y=0.3, spin1z=0.9, spin2x=-0.4, spin2y=-0.4, spin2z=0.8, mean_anomaly_start=4.3, inclination=np.pi/3, phi_start=1.2, distance=100.),
+minimize_parameters = ['phase', 'phase_s', 'mean_anomaly'],
+base_pyEFPE_params = dict(spin1x=-0.2, spin1y=0.3, spin1z=0.9, spin2x=-0.4, spin2y=-0.4, spin2z=0.8, mean_anomaly=4.3, inclination=np.pi/3, phase=1.2, distance=100.),
 pol = 0.5*np.pi,
 qs = np.geomspace(0.05, 1, 20),
 es = np.linspace(0, 0.7, 15),
@@ -286,7 +286,7 @@ for imc, mc in enumerate(mcs):
 				#put the params to pass to pyEFPE in dictionary
 				params_pyEFPE_1['mass1'] = m1
 				params_pyEFPE_1['mass2'] = m2
-				params_pyEFPE_1['e_start'] = e
+				params_pyEFPE_1['eccentricity'] = e
 			
 				if max_duration is not None:
 					params_pyEFPE_1['f22_start'] = find_f22_start_for_duration(max_duration, f22_start, f_max, mc, e)
@@ -359,7 +359,7 @@ if norm_dphase_function is not None:
 				#put the params to pass to pyEFPE in dictionary
 				params_pyEFPE_1['mass1'] = m1
 				params_pyEFPE_1['mass2'] = m2
-				params_pyEFPE_1['e_start'] = e
+				params_pyEFPE_1['eccentricity'] = e
 
 				if max_duration is not None:
 					params_pyEFPE_1['f22_start'] = find_f22_start_for_duration(max_duration, f22_start, f_max, mc, e)

@@ -52,7 +52,7 @@ def horizon_absorption_dphasing(p_pyEFPE):
 	kHA = (dmu + (9./8.)*(s2_1 - s2_2))*dchi + chi_eff*(1 - 2*nu + (9./8.)*(s2_1 + s2_2) + (45./16.)*dchi*dchi + (15./16.)*chi_eff*chi_eff)
 
 	#compute initial PN parameter
-	e20 = p_pyEFPE['e_start']*p_pyEFPE['e_start']
+	e20 = p_pyEFPE['eccentricity']*p_pyEFPE['eccentricity']
 	y0 = ((np.pi*M*p_pyEFPE['f22_start'])**(1/3))/np.sqrt(1 - e20)
 	#compute final PN parameter
 	if 'f22_end' in p_pyEFPE:
@@ -102,7 +102,7 @@ def batched_bo_minimize_mismatch(signal, freqs, pyEFPE_params, minimize_paramete
 		periodic_dims = list()
 		periods = list()
 		for ip, pname in enumerate(minimize_parameters):
-			if pname in ['phi_start', 'phase_s', 'phase_s1', 'phase_s2', 'mean_anomaly_start', 'inclination', 'pol']:
+			if pname in ['phase', 'phase_s', 'phase_s1', 'phase_s2', 'mean_anomaly', 'inclination', 'pol']:
 				periodic_dims.append(ip)
 				if pname in ['pol']: periods.append(  np.pi)
 				else :               periods.append(2*np.pi)
@@ -136,7 +136,7 @@ pyEFPE_1 = pyEFPEHM,
 pyEFPE_2 = pyEFPEHM,
 params_pyEFPE_1 = {'horizon_absorption': True,},
 update_params_pyEFPE_2 = {'horizon_absorption': False,},
-minimize_parameters = ['phi_start', 'phase_s', 'mean_anomaly_start'],
+minimize_parameters = ['phase', 'phase_s', 'mean_anomaly'],
 e_range   = (0., 0.6),
 q_range   = (0.05, 1.),
 s_range = (0., 1.),
@@ -302,8 +302,8 @@ except:
 			'mass1' : m1[i],  'mass2' : m2[i],
 			'spin1x': s1x[i], 'spin1y': s1y[i], 'spin1z': s1z[i],
 			'spin2x': s2x[i], 'spin2y': s2y[i], 'spin2z': s2z[i],
-			'e_start': ecc[i], 'mean_anomaly_start': mean_anomaly[i],
-			'inclination': iota[i], 'phi_start': phiref[i],
+			'eccentricity': ecc[i], 'mean_anomaly': mean_anomaly[i],
+			'inclination': iota[i], 'phase': phiref[i],
 		})
 
 		if max_duration is not None:

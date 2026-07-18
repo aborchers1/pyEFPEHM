@@ -44,7 +44,7 @@ eccentricities = np.linspace(0, 0.6, 12)
 psd_name = 'AplusDesign' #None
 
 #parameters to optimize over
-minimize_parameters = ['phi_start', 'e_start', 'mean_anomaly_start']
+minimize_parameters = ['phase', 'eccentricity', 'mean_anomaly']
 #Relative wigle room to allow eccentricity
 rtol_e  = 0.2
 rtol_p = 0.1
@@ -95,8 +95,8 @@ params_pyEFPE.update({
     "f22_start": f_min_gen_fact*f_min,
     "distance": distance,
     "inclination": inclination,
-    "phi_start": phiref,
-    "mean_anomaly_start": rel_anomaly,
+    "phase": phiref,
+    "mean_anomaly": rel_anomaly,
     "pn_phase_order": pn_phase_order,
     "pn_spin_order": pn_spin_order,
     "pn_amplitude_order": pn_amplitude_order,
@@ -147,7 +147,7 @@ except:
 
 			#compute pyEFPE dictionary
 			p_pyEFPE = params_pyEFPE.copy()
-			p_pyEFPE.update({'mass1': m1, 'mass2': m2, 'e_start': ecc})
+			p_pyEFPE.update({'mass1': m1, 'mass2': m2, 'eccentricity': ecc})
 
 			#compute signal waveform and frequencies
 			p = {LAL_key: p_pyEFPE[pyEFPE_key] for pyEFPE_key, LAL_key in pyEFPE_keys.items()}

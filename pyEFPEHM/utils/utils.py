@@ -87,57 +87,94 @@ def safe_divide_by_array(num, den, min_den=0., out=None, default_dtype=np.float6
 	#perform safe division
 	return np.divide(num, den, out=out, where=np.abs(den)>min_den)
 
+#function to flip the dense output of a backward (h<0) solve_ivp solution to forward form
+#each interpolant is y(x) = y_old + sum_k (h*Q)_k x^k with x=(t - t_old)/h, and time reversal is the substitution
+#x = xa*(1 - x') with x' = (t - ta)/(t_old - ta), whose coefficients are c'_j = (-1)^j sum_{k>=j} binom(k,j) xa^k c_k
+#xa = 1 for full steps, and the earliest segment is truncated (xa < 1) to start at the first solution time,
+#e.g. the time a terminal event was triggered
+#returns time-ordered (ts, hs, ys, Qs) arrays of forward interpolants, with shapes (n,), (n,), (n, n_states), (n, n_states, K-1)
+def flip_backward_sol(sol):
+
+	#reverse the interpolants into forward time order and stack their polynomial coefficients c_k into an array of shape (n_seg, n_states, K)
+	interpolants = sol.interpolants[::-1]
+	c = np.stack([np.concatenate([interpolant.y_old[:,None], interpolant.h*interpolant.Q], axis=1) for interpolant in interpolants])
+	K = c.shape[2]
+
+	#forward segment breakpoints: consecutive RK steps share their boundary times exactly,
+	#and the earliest segment starts at the first solution time
+	t_olds = np.array([interpolant.t_old for interpolant in interpolants])
+	tas = np.append(sol.ts_sorted[0], t_olds[:-1])
+	hs = t_olds - tas
+
+	#truncate the earliest segment by substituting x -> xa*x
+	xa = (sol.ts_sorted[0] - t_olds[0])/interpolants[0].h
+	c[0] = c[0]*(xa**np.arange(K))
+
+	#apply the binomial flip x -> 1 - x' to all segments at once, i.e. c'_j = (-1)^j sum_{k>=j} binom(k,j) c_k
+	kk, jj = np.meshgrid(np.arange(K), np.arange(K), indexing='ij')
+	c = c @ (((-1.)**jj)*scipy.special.comb(kk, jj))
+
+	#return the flipped segments in the (ts, hs, ys, Qs) form of forward interpolants
+	return tas, hs, c[:,:,0], c[:,:,1:]/hs[:,None,None]
+
 #create my own class structure to save the dense result of scipy.integrate.solve_ivp
 class ivp_sol_interp:
-	
-	#method to initialize class from a scipy.integrate.OdeSolution object
+
+	#method to initialize class from a scipy.integrate.OdeSolution object, or a time-ordered list of them
 	#interpolant times are assumed to be ordered!
 	def __init__(self, sol, t_final=None):
-			
-		#save all points (including last one)
-		self.all_ts = sol.ts_sorted
-		
-		#store also the attributes of the interpolants in lists
-		self.ts = list()
-		self.hs = list()
-		#for ys and Qs consider 0th, 1st and 2nd derivatives
-		self.ys = [[], [], []]
-		self.Qs = [[], [], []]
-		#loop over interpolants
-		for interpolant in sol.interpolants:
-			#store value of t_n
-			self.ts.append(interpolant.t_old)
-			#store the value of y at previous interpolation node
-			self.ys[0].append(interpolant.y_old)
-			#extract value of step h_n = t_{n+1} - t_n
-			h = interpolant.h
-			#store step value
-			self.hs.append(h)
-			#extract values of polynomial coefficients
-			Q_temp = interpolant.Q
-			#store value of polynomial coefficients
-			self.Qs[0].append(h*Q_temp)
-			#Compute polynomial coeficients for 1st derivative
-			iQ = np.arange(Q_temp.shape[1])[np.newaxis,:]
-			Q_temp = (1+iQ)*Q_temp
-			self.Qs[1].append(Q_temp[:,1:])
-			self.ys[1].append(Q_temp[:,0])
-			#Compute polynomial coeficients for 2nd derivative
-			iQ = np.arange(Q_temp.shape[1]-1)[np.newaxis,:]
-			Q_temp = (1+iQ)*Q_temp[:,1:]/h
-			self.Qs[2].append(Q_temp[:,1:])
-			self.ys[2].append(Q_temp[:,0])
 
-		#convert to numpy arrays
-		self.ts = np.array(self.ts)
-		self.hs = np.array(self.hs)
-		for derivative in [0,1,2]:
-			self.ys[derivative] = np.array(self.ys[derivative])
-			self.Qs[derivative] = np.array(self.Qs[derivative])
+		#if a single solution is given, wrap it in a list
+		if not isinstance(sol, (list, tuple)): sol = [sol]
+
+		#save all points (including last one), dropping the first point of every solution after the first
+		#check that consecutive solutions share the junction point exactly
+		for sol_prev, sol_next in zip(sol[:-1], sol[1:]):
+			if sol_prev.ts_sorted[-1] != sol_next.ts_sorted[0]:
+				raise Exception("Solutions to stitch do not share the junction time (%s != %s)"%(sol_prev.ts_sorted[-1], sol_next.ts_sorted[0]))
+		self.all_ts = np.concatenate([sol_i.ts_sorted if i==0 else sol_i.ts_sorted[1:] for i, sol_i in enumerate(sol)])
+
+		#build per-solution arrays of segment times t_n, steps h_n = t_{n+1} - t_n, values at segment start and polynomial coefficients
+		#solutions integrated backwards (h<0) are flipped to forward form
+		ts, hs, ys, Qs = [], [], [], []
+		for sol_i in sol:
+			if sol_i.interpolants[0].h < 0:
+				ts_i, hs_i, ys_i, Qs_i = flip_backward_sol(sol_i)
+			else:
+				ts_i = np.array([interpolant.t_old for interpolant in sol_i.interpolants])
+				hs_i = np.array([interpolant.h     for interpolant in sol_i.interpolants])
+				ys_i = np.array([interpolant.y_old for interpolant in sol_i.interpolants])
+				Qs_i = np.array([interpolant.Q     for interpolant in sol_i.interpolants])
+			ts.append(ts_i)
+			hs.append(hs_i)
+			ys.append(ys_i)
+			Qs.append(Qs_i)
+
+		#join the arrays of the different solutions
+		self.ts = np.concatenate(ts)
+		self.hs = np.concatenate(hs)
+		Q = np.concatenate(Qs)
+
+		#store the values at segment start and the polynomial coefficients of the interpolant and its first two derivatives
+		self.ys = [np.concatenate(ys), None, None]
+		self.Qs = [self.hs[:,None,None]*Q, None, None]
+		#compute polynomial coefficients for 1st derivative
+		iQ = np.arange(Q.shape[2])
+		Q = (1+iQ)*Q
+		self.ys[1] = Q[:,:,0]
+		self.Qs[1] = Q[:,:,1:]
+		#compute polynomial coefficients for 2nd derivative
+		iQ = np.arange(Q.shape[2]-1)
+		Q = (1+iQ)*Q[:,:,1:]/self.hs[:,None,None]
+		self.ys[2] = Q[:,:,0]
+		self.Qs[2] = Q[:,:,1:]
 		
 		#check that times are indeed sorted
 		if not np.all(self.ts[:-1]<=self.ts[1:]):
 			raise Exception("Interpolants are not sorted in time")
+
+		#check that the segment breakpoints are consistent with the number of interpolants
+		assert len(self.all_ts) == len(self.ts) + 1
 		
 		#if required, shift the time such that the last time corresponds to t_final
 		if t_final is not None:

@@ -217,13 +217,14 @@ def EFPE_td(m1, m2, s1x, s1y, s1z, s2x, s2y, s2z, dL_Mpc, iota, phiref, long_asc
 		"eccentricity": ecc,
 		"distance": dL_Mpc,
 		"inclination": iota,
-		"mean_anomaly_start": mean_ano,
+		"mean_anomaly": mean_ano,
 		"f22_start": f_min_gen,
 	})
 
-	#choose approximant
+	#choose approximant, translating to the legacy *_start keys for the old pyEFPE package
 	if approx_string=="pyEFPE":
 		EFPE = pyEFPE.pyEFPE
+		p_pyEFPE = to_legacy_pyEFPE_params(p_pyEFPE)
 	elif approx_string=="pyEFPEHM":
 		EFPE = pyEFPEHM.pyEFPE
 	
@@ -250,13 +251,14 @@ def EFPE_fd(m1, m2, s1x, s1y, s1z, s2x, s2y, s2z, dL_Mpc, iota, phiref, long_asc
 		"eccentricity": ecc,
 		"distance": dL_Mpc,
 		"inclination": iota,
-		"mean_anomaly_start": mean_ano,
+		"mean_anomaly": mean_ano,
 		"f22_start": f_min_gen,
 	})
 
-	#choose approximant
+	#choose approximant, translating to the legacy *_start keys for the old pyEFPE package
 	if approx_string=="pyEFPE":
 		EFPE = pyEFPE.pyEFPE
+		p_pyEFPE = to_legacy_pyEFPE_params(p_pyEFPE)
 	elif approx_string=="pyEFPEHM":
 		EFPE = pyEFPEHM.pyEFPE
 	
