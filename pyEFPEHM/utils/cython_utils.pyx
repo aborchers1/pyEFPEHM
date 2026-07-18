@@ -3,31 +3,39 @@ cimport numpy as np
 cimport cython
 
 cpdef my_cgroup_idxs_by_vals(np.ndarray[np.int64_t, ndim=1] arr):
-    
-	#compute how many each index appears in arr
+	'''
+	Group the positions of `arr` by their value using a counting sort.
+
+	`arr` is a 1D array of non-negative int64 values. Returns a list with one
+	array per value v = 0, 1, ..., arr.max(), each holding the positions i with
+	arr[i] == v in increasing order of i. Values absent from `arr` give empty
+	groups. Runs in O(len(arr) + arr.max()) time.
+	'''
+
+	#count how many times each value appears in arr (length arr.max()+1)
 	cdef np.ndarray[np.int64_t, ndim=1] a_counts = np.bincount(arr)
-    
-	#now generate arrays to store indices and where each index will be located
+
+	#grouped_idxs receives the positions ordered by value; a_idxs starts as the
+	#write cursor at the start offset of each value's group
 	cdef np.ndarray[np.int64_t, ndim=1] grouped_idxs = np.empty_like(arr, dtype=np.int64)
 	cdef np.ndarray[np.int64_t, ndim=1] a_idxs = np.zeros_like(a_counts, dtype=np.int64)
 	a_idxs[1:] = np.cumsum(a_counts[:-1])
 
-	#declare C-level variables for the loop
+	#C-level variables and typed memoryviews for a pure-C scatter loop
 	cdef Py_ssize_t i
 	cdef np.int64_t a
-
-	#create typed memoryviews for direct, C-level buffer access
 	cdef np.int64_t[:] grouped_idxs_view = grouped_idxs
 	cdef np.int64_t[:] a_idxs_view = a_idxs
 	cdef np.int64_t[:] arr_view = arr
 
-	#this loop will now be converted to pure, fast C code
+	#place each position i in its value's slot and advance that slot's cursor
 	for i in range(arr.shape[0]):
 		a = arr_view[i]
 		grouped_idxs_view[a_idxs_view[a]] = i
 		a_idxs_view[a] += 1
 
-	return grouped_idxs, a_idxs
+	#a_idxs now holds each group's end offset. Use np.split to return one group per value (last entry is len(arr) and would give an empty group)
+	return np.split(grouped_idxs, a_idxs[:-1])
 
 #my lightweight cython class to evaluate polynomials using Horners method
 cdef class my_cpoly:

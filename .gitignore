@@ -1,0 +1,36 @@
+# Python build artifacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+build/
+dist/
+.eggs/
+
+# Cython generated files
+pyEFPEHM/utils/cython_utils.c
+*.so
+
+# Environments / tooling
+.venv/
+venv/
+.ipynb_checkpoints/
+
+# Test / script generated outputs (figures and data dumps)
+# NOTE: .txt is intentionally not ignored, since tracked ASD/PSD data files use it
+*.pdf
+*.png
+*.jpg
+*.jpeg
+*.svg
+*.gif
+*.pickle
+*.pkl
+*.npy
+*.npz
+*.hdf5
+*.h5
+*.prof
+
+# but keep the regression-test reference
+!Tests/regression_reference.npz

@@ -3,6 +3,8 @@ from matplotlib import pyplot as plt
 from scipy.integrate import cumulative_trapezoid
 from scipy.special import gamma, hyp2f1, betainc, beta
 from scipy.interpolate import interp1d
+from pyEFPEHM.waveform.functions import F_tLO_series_at_0, F_tLO_series_at_1, F_tLO_series
+
 plt.rcParams.update({
         'axes.grid': False,
         'axes.labelsize': 28,
@@ -102,43 +104,13 @@ def F_betas_high_x(x, nmax=10):
 	#multiply by extra factors of x and return 
 	return integral*(((425/304)**(1181/2299))*(24/19))*(x**(-24/19))*((1 + (121/304)*x)**(-3480/2299))
 	
-#compute the series expansion of the tLO integral for x->0
-# F = (24/19)*x**(-24/19)*((1 + (121/304)*x)**(-3480/2299))*sqrt(1-x)*integral((x**(5/19))*((1 + (121/304)*x)**(1181/2299))*((1 - x)**(-3/2)))
-def F_series_at_0(x):
-	coefs = np.array([1.000000000000000, -0.1511627906976744, 0.2656836084021005, 0.007463780007501875, 0.08800790590714085, 0.03153077124184580, 0.04185392210761341, 0.02761371124737777, 0.02642686119635599, 0.02145414169943131, 0.01926563742403364, 0.01677217450181226, 0.01503898450331388, 0.01347003088516929, 0.01220348405026613, 0.01110346195121149, 0.01016749330223870, 0.009352447459389354, 0.008642114232972108, 0.008016709107501086, 0.007463457161231162,0.006970902964332086, 0.006530253812462707, 0.006134111124121483, 0.005776451398258840, 0.005452229768143720, 0.005157232928828976, 0.004887901117379935, 0.004641215172072290, 0.004414596725230578,0.004205833180162198, 0.004013015784562471, 0.003834490347048246,0.003668816871424952, 0.003514736646109113, 0.003371145103099870, 0.003237069368178693, 0.003111649567641214, 0.002994123194217794, 0.002883811964918853, 0.002780110725151045, 0.002682478039498533,0.002590428180410570, 0.002503524280447905, 0.002421372457429333,0.002343616756405161, 0.002269934780185545, 0.002200033902499887, 0.002133647975961232, 0.002070534461714599, 0.002010471919657125])
-	
-	return np.polyval(np.flip(coefs),x)
-
-#compute the series expansion of the tLO integral for x->1
-def F_series_at_1(x):
-	
-	#we are going to approximate the integral of ((1 - 1/u**2)**(5/19))*(1 - (121/425)/u**2)**(1181/2299) - 1 as -f0 + sum_{n=1}^{nmax} cn*u**-(2*n-1)
-	cns = np.array([0.40941176470588236, 0.02286320645905421, 0.008142925951557094, 0.004155878512401501, 0.0024847568765827364, 0.001633290511588348, 0.0011455395465032605, 0.000842577094447224, 0.0006427195446513564, 0.0005045715814217113, 0.00040544477831148924, 0.0003321116545345162, 0.0002764636962467965, 0.00023331895675436905, 0.0001992473575067662, 0.00017190919726595898, 0.00014966654751355843, 0.000131346469484909, 0.00011609207361015848, 0.00010326617525262309, 9.238740896587563e-05, 8.308691874613337e-05, 7.50784086790562e-05, 6.813705814151314e-05, 6.20844345948999e-05, 5.677753690123865e-05, 5.210072977646673e-05, 4.7959732146031274e-05, 4.427708468062032e-05, 4.0988696117937945e-05, 3.80411855904995e-05, 3.538981870077757e-05, 3.2996890965966614e-05, 3.083045152872919e-05, 2.886328796018351e-05, 2.707211306399751e-05, 2.543690918050699e-05, 2.3940396192787112e-05, 2.256759736012561e-05, 2.1305483020854193e-05, 2.014267666038337e-05, 1.906921121897629e-05, 1.8076326095558655e-05, 1.7156297290322297e-05, 1.6302294667351972e-05, 1.550826151746742e-05, 1.4768812541410176e-05, 1.407914711455732e-05])
-	
-	#evaluate polynomial
-	u = 1-x
-	return ((48/19)*((425/304)**(1181/2299)))*(1 - 1.4555165803216864*np.sqrt(u) + u*np.polyval(np.flip(cns),u))*(x**(-24/19))*((1 + (121/304)*x)**(-3480/2299)) 
-
-#function to choose series at x=0 or at x=1
-def F_series(x):
-	
-	#if x small, use series expansion at 0, otherwise use series expansion at 1
-	F = np.zeros_like(x)
-	i_low = x<0.4
-	i_high = np.logical_not(i_low)
-	if sum(i_low)>0:  F[i_low] = F_series_at_0(x[i_low])
-	if sum(i_high)>0: F[i_high] = F_series_at_1(x[i_high])
-	
-	#return F
-	return F
-
 def F_betas(x, nmax=20):
 	
 	#if x is very small, do taylor expansion, otherwise use beta functions
 	F = np.zeros_like(x)
 	i_low = x<0.4
 	i_high = np.logical_not(i_low)
-	if sum(i_low)>0:  F[i_low] = F_series_at_0(x[i_low])
+	if sum(i_low)>0:  F[i_low] = F_tLO_series_at_0(x[i_low])
 	if sum(i_high)>0: F[i_high] = F_betas_high_x(x[i_high], nmax=nmax)
 	
 	#return F
@@ -169,7 +141,7 @@ print("Analytical betas runtime: %s seconds" % (time.time() - start_soltime), "M
 
 #time F_hypergeom integral
 start_soltime = time.time()
-F_exact_series = F_series(x)
+F_exact_series = F_tLO_series(x)
 print("Analytical series runtime: %s seconds" % (time.time() - start_soltime), "Max error:", np.amax(np.abs(F_exact - F_exact_series)), "at x=", x[np.argmax(np.abs(F_exact - F_exact_series))])
 
 
@@ -208,7 +180,7 @@ plt.savefig('Fe_plot.pdf')
 plt.figure(figsize=(12,8))
 plt.plot(x, np.where(x>0.1, tNLO*(y**8)*(1-x)**(1/2), taylor_series), label='exact')
 plt.plot(x, normed_tNLO_high_x,'--', label='high x approx')
-plt.plot(x, F_series_at_0(x), label='Taylor')
+plt.plot(x, F_tLO_series_at_0(x), label='Taylor')
 plt.plot(x, F_hypergeom_low_x(x), label='Hypergeometric, low x')
 plt.plot(x, F_hypergeom_high_x(x), label='Hypergeometric, high x')
 plt.plot(x, F_exact, label='Hypergeometric')

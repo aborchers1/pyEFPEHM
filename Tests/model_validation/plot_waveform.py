@@ -151,7 +151,7 @@ axs[0].set_ylabel(r'Strain $h$')
 #make the first zoom
 i_zoom_1 = (times>t0_zoom_1) & (times<tf_zoom_1)
 times_zoom_1, hp_zoom_1, hc_zoom_1 = times[i_zoom_1], h_td[0][i_zoom_1], h_td[1][i_zoom_1]
-tlow_1, thigh_1, hlow_1, hhigh_1 = min(times_zoom_1), max(times_zoom_1), 1.025*min(min(hp_zoom_1), min(hp_zoom_1)), 1.025*max(max(hp_zoom_1), max(hp_zoom_1))
+tlow_1, thigh_1, hlow_1, hhigh_1 = min(times_zoom_1), max(times_zoom_1), 1.025*min(min(hp_zoom_1), min(hc_zoom_1)), 1.025*max(max(hp_zoom_1), max(hc_zoom_1))
 axs[1].plot(times_zoom_1, hp_zoom_1, label=r'$h_+$', color=hp_color)
 axs[1].plot(times_zoom_1, hc_zoom_1, label=r'$h_\times$', color=hc_color)
 axs[1].set_xlim(tlow_1, thigh_1)
@@ -167,7 +167,7 @@ fig.add_artist(con_high_1)
 #make the second zoom
 i_zoom_2 = (times>t0_zoom_2) & (times<tf_zoom_2)
 times_zoom_2, hp_zoom_2, hc_zoom_2 = times[i_zoom_2], h_td[0][i_zoom_2], h_td[1][i_zoom_2]
-tlow_2, thigh_2, hlow_2, hhigh_2 = min(times_zoom_2), max(times_zoom_2), 1.025*min(min(hp_zoom_2), min(hp_zoom_2)), 1.025*max(max(hp_zoom_2), max(hp_zoom_2))
+tlow_2, thigh_2, hlow_2, hhigh_2 = min(times_zoom_2), max(times_zoom_2), 1.025*min(min(hp_zoom_2), min(hc_zoom_2)), 1.025*max(max(hp_zoom_2), max(hc_zoom_2))
 axs[2].plot(times_zoom_2, hp_zoom_2, label=r'$h_+$', color=hp_color, linewidth=2.5)
 axs[2].plot(times_zoom_2, hc_zoom_2, label=r'$h_\times$', color=hc_color, linewidth=2.5)
 axs[2].set_xlim(tlow_2, thigh_2)

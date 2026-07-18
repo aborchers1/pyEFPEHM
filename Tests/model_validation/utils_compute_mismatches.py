@@ -256,17 +256,17 @@ def fd_from_teobresum_td(m1, m2, s1x, s1y, s1z, s2x, s2y, s2z, dL_Mpc, iota, phi
 
 #function to obtain PSD at certain frequencies from lal
 def compute_asd(delta_f, f_min, f_max, psd_name='aLIGOO3LowT1800545', asd_folder='./ASDs'):
-	
+
+	#frequencies at which to return the ASD
+	freqs = np.arange(f_min, f_max, delta_f)
+
 	#first try to load asd from a file
 	try:
 		asd_raw = np.loadtxt(asd_folder+'/'+psd_name+'.txt')
-		
-		#compute the frequencies
-		freqs = np.arange(f_min, f_max, delta_f)
-		
-		#interpolated
+
+		#interpolate the tabulated ASD onto freqs
 		asd = np.interp(freqs, asd_raw[:,0], asd_raw[:,1])
-	
+
 	#otherwise, try computing it using lalsimulation
 	except:
 		#create lalseries, add one frequency point because in the last freq, psd gives 0
@@ -274,13 +274,14 @@ def compute_asd(delta_f, f_min, f_max, psd_name='aLIGOO3LowT1800545', asd_folder
 
 		#guess the PSD function from name
 		func = lalsim.__dict__['SimNoisePSD' + psd_name]
-		
+
 		#put the PSD on lalseries
 		func(lalseries, f_min)
-		
-		#select the frequencies above f_min and compute the psd at freqs
-		asd = np.sqrt(np.array(lalseries.data.data)[int(f_min/delta_f):-1])
-	
+
+		#interpolate the ASD (sqrt of the PSD) onto freqs
+		lal_freqs = delta_f*np.arange(len(lalseries.data.data))
+		asd = np.interp(freqs, lal_freqs, np.sqrt(np.array(lalseries.data.data)))
+
 	#return the ASD as the sqrt of the PSD
 	return asd
 
@@ -948,7 +949,7 @@ def compute_htd_from_hfd(hfd, freqs, pad_factor=2):
 	return htd, times
 
 #function to plot time and frequency domain waveforms
-def plot_h1_h2(h1, h2, freqs, asd=None, label_1=r'1', label_2=r'$2$', show=True, figsize_fd=(12,12), figsize_td=(16,5), title_str=None, alpha=0.6):
+def plot_h1_h2(h1, h2, freqs, asd=None, label_1=r'1', label_2=r'2', show=True, figsize_fd=(12,12), figsize_td=(16,5), title_str=None, alpha=0.6):
 
 	from matplotlib import pyplot as plt
 	fig, axs = plt.subplots(2, 1, sharex=True, figsize=figsize_fd)
@@ -1096,4 +1097,43 @@ def compute_td_dA_dphi_hilbert(h_test, h_ref):
 	dphi = dphi - 2*np.pi*np.round(np.median(dphi)/(2*np.pi))
 
 	return dA, dphi
+
+#function to compute EFPE duration
+def compute_duration_of_Mc_f0_e0(Mc, f0, e0):
+	return (5./256.)*((t_sun_s*Mc)**(-5./3.))*((np.pi*f0)**(-8./3.))*((1-e0*e0)**3.5)*pyEFPEHM.functions.F_tLO_series(e0*e0)
+
+#function to find the frequency from which the waveform has a certain duration using the bisection method
+def find_f22_start_for_duration(duration, f22_start_min, f22_start_max, Mc, e0, max_iter=100, rtol=1e-10):
+	
+	#compute duration from minimum and maximum frequencies
+	durL = compute_duration_of_Mc_f0_e0(Mc, f22_start_min, e0)
+	durR = compute_duration_of_Mc_f0_e0(Mc, f22_start_max, e0)
+	
+	#check if maximum duration is smaller than duration
+	if durL<duration:
+		return f22_start_min
+	#check if minimum duration is greater than duration
+	if durR>duration:
+		print("Warning: From f22_start_max=%s, expected duration is %ss > duration=%ss"%(f22_start_max, durR, duration))
+		return f22_start_max
+
+	#do bisection algorithm to find frequency from which the waveform has a certain duration
+	fL, fR = f22_start_min, f22_start_max
+	for i in range(max_iter):
+		
+		#compute middle frequency and duration
+		f_mid = 0.5*(fL + fR)
+		dur_mid = compute_duration_of_Mc_f0_e0(Mc, f_mid, e0)
+
+		#Update segment f22_start is in using that duration is monotonously decreasing
+		if   dur_mid>duration : fL, durL = f_mid, dur_mid
+		elif dur_mid<duration : fR, durR = f_mid, dur_mid
+		elif dur_mid==duration: return f_mid
+	
+		#check if desired tolerance has been achieved
+		if (abs(fR - fL)<rtol*abs(fR + fL)) or (abs(durL - durR)<rtol*abs(durL + durR)):
+			break
+
+	#return final middle frequency
+	return 0.5*(fL + fR)
 

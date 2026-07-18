@@ -1,5 +1,6 @@
 import numpy as np
 import scipy.special
+import warnings
 
 #function take out modes from the mode array that are not consistent with the pn_amplitude_order
 def clean_mode_array(mode_array, pn_amplitude_order=2):
@@ -16,7 +17,56 @@ def clean_mode_array(mode_array, pn_amplitude_order=2):
 	input_mode_array_set = set(map(tuple, mode_array))
 
 	#return modes in max_mode_array that are also in the input mode_array
-	return np.array([mode for mode in max_mode_array if mode in input_mode_array_set])
+	return np.array([mode for mode in max_mode_array if mode in input_mode_array_set], dtype=int)
+
+#function take process a user specified harmonic_array containing (l,m,p) modes and mode array to be used
+def process_harmonic_array(harmonic_array, max_mode_array, pn_amplitude_order=2):
+
+	#in case harmonic list is None, do nothing
+	if harmonic_array is None: return harmonic_array, max_mode_array
+	
+	#Make sure input harmonic_array has the correct format (copy to avoid mutating the caller's array)
+	harmonic_array = np.atleast_2d(np.array(harmonic_array, dtype=int))
+	if harmonic_array.ndim != 2 or harmonic_array.shape[1] != 3:
+		raise ValueError("harmonic_array must have shape (N, 3) with columns (l, m, p); got shape %s"%(harmonic_array.shape,))
+
+	#if a mode has p=0, remove it
+	idxs_p_is_0 = harmonic_array[:,2]==0
+	if np.any(idxs_p_is_0):
+		harmonic_array = harmonic_array[~idxs_p_is_0]
+	
+	#if a mode has a negative m, do (l, m, p)->(l, -m, -p)
+	idxs_neg_m = harmonic_array[:,1]<0
+	if np.any(idxs_neg_m):
+		harmonic_array[idxs_neg_m,1:] = -harmonic_array[idxs_neg_m,1:]
+	
+	#consider unique (l,m,n) harmonics
+	harmonic_array = np.unique(harmonic_array, axis=0)
+	
+	#consider unique (l,m) modes
+	unique_modes = np.unique(harmonic_array[:,:2], axis=0)
+
+	#build a set of supported (l,m) modes for row-wise membership testing
+	supported_modes = set(map(tuple, max_mode_array))
+
+	#loop over unique modes
+	mode_list = []
+	for mode in unique_modes:
+		#if this mode is supported at the PN order considered, add it to the list
+		if tuple(mode) in supported_modes:
+			mode_list.append(mode)
+		#otherwise, remove all harmonics that correspond to this mode
+		else:
+			warnings.warn("Removing harmonics for [l,m]=%s since they are not supported at pn_amplitude_order=%s"%(mode,pn_amplitude_order), UserWarning, stacklevel=2)
+			harmonic_array = harmonic_array[~np.all(harmonic_array[:,:2]==mode, axis=1)]
+
+	#if no supported harmonics remain, fall back to automatic mode selection
+	if len(mode_list) == 0:
+		warnings.warn("All requested harmonics were removed; falling back to automatic mode selection.", UserWarning, stacklevel=2)
+		return None, max_mode_array
+
+	#return harmonic_array and mode_array
+	return harmonic_array, np.array(mode_list, dtype=int)
 
 #Function to compute \sum_{l,m,p>0} |N^{lm}_p|^2 approximating |\exp{-i a y^2}|^2 \approx |1 - i a y^2|^2
 #We use that |N^{l, -m}_p|=|N^{l, m}_{-p}| and therefore
@@ -123,7 +173,7 @@ def compute_H_norm2_PNconsistent(e2, y, nu, dmu, dchi=0, mode_array=[[2,0],[2,1]
 			Hnorm += ((5165/2268 + e2*(119765/18144 + e2*(1035/896)))/sqrt_1me2 - (5/252)*one_m_e2_2)*y4_one_m_3nu2
 			
 		else:
-			print("Warning: mode %s is not implemented at pn_amplitude_order=%s"%(mode, pn_amplitude_order))
+			warnings.warn("Mode %s is not available at pn_amplitude_order=%s."%(mode, pn_amplitude_order), UserWarning, stacklevel=2)
 
 	return Hnorm
 
@@ -266,6 +316,9 @@ def analytical_Nlm_p(p, e2, y, nu, dmu, dchi=0, mode_array=[[2,0],[2,1],[2,2],[3
 				Nlms[im] += 0.5*y2*(e*(-111/14 + (39/14)*nu + e2*(-19/14 + (17/42)*nu)+ p*(sqrt_1me2*(-115/14 - (19/14)*nu + e2*(356/21 - (11/21)*nu))-p*(1-3*nu)*(5/21 + e2*(-2/7 + e2*(2/21)))))*CJi[0] + e*(sqrt_1me2*(37/7 - (25/21)*nu) + p*(-262/21 + (65/21)*nu + e2*(23/21 + (8/21)*nu) + p*(1-3*nu)*sqrt_1me2*(2/21)*(2 - e2)))*SJi[0] + p*((37/14 - (67/42)*nu)*(SJi[1] - sqrt_1me2*CJi[1]) + p*(1-3*nu)*((CJi[1] - sqrt_1me2*SJi[1])/21)))
 				#compute finite part of fbeta
 				fbeta_nosum = (b3*(53 + b2*(4 - b2))*0.5*e*CJi[0] + (6 + b2*(-41/3 + b2*(-56/3)))*Ji[0] - (6 + b2*(13 + b2*(7 + b2*(2/3 - b2/3))))*Ji[1] + b4*Ji[4] + Ji[5])/one_p_b2 - b3*Ji[2]/6 - b*(8 + b2*(-6 + b2*(8/3 - b2/2)))*Ji[3]
+				#fbeta sum uses backward Bessel recurrences that grow unstable for long windows; tested-stable limits scale with fbeta_niter
+				if fbeta_n_pos_max > 22 + 2*fbeta_niter: warnings.warn("fbeta_n_pos_max>%d (at fbeta_niter=%d) makes the (2,2) positive-frequency Bessel recurrence numerically unstable; amplitudes can blow up."%(22+2*fbeta_niter, fbeta_niter), UserWarning, stacklevel=2)
+				if fbeta_n_neg_max > 18 + 2*fbeta_niter: warnings.warn("fbeta_n_neg_max>%d (at fbeta_niter=%d) makes the (2,2) negative-frequency Bessel recurrence numerically unstable; amplitudes can blow up."%(18+2*fbeta_niter, fbeta_niter), UserWarning, stacklevel=2)
 				#compute infinite part of fbeta
 				an_pos = a0a1_bessel_recurrence(compute_an_pos, 3, fbeta_n_pos_max, b2, p, sign='+', niter=fbeta_niter)
 				fbeta_sum = b4*(an_pos[0]*Ji[4] + b*an_pos[1]*Ji[6])
@@ -288,7 +341,7 @@ def analytical_Nlm_p(p, e2, y, nu, dmu, dchi=0, mode_array=[[2,0],[2,1],[2,2],[3
 		elif mode==(4,4) and pn_order_1:
 			Nlms[im] = (((5/7)**0.5)/72)*y2_one_m_3nu*one_m_e2*(e*(6 + p*sqrt_1me2*(-6 + p*(4*sqrt_1me2 + p*(-15 + 8*e2))))*CJi[0] + p*(e*(5 + p*(-20*sqrt_1me2 + 8*p*one_m_e2))*SJi[0] + sqrt_1me2*(12 + p*(-12*sqrt_1me2 + 8*p))*CJi[1] + p*((22*sqrt_1me2 - 6*p*one_m_e2)*SJi[1] + p*(-sqrt_1me2*CJi[3] + one_m_e2*SJi[3]))))
 		else:
-			print("Warning: mode %s is not implemented at pn_amplitude_order=%s"%(mode, pn_amplitude_order))
+			warnings.warn("Mode %s is not available at pn_amplitude_order=%s."%(mode, pn_amplitude_order), UserWarning, stacklevel=2)
 
 	return Nlms
 
@@ -320,7 +373,7 @@ def Fourier_modes_needed(e2, y, nu, dmu, dchi=0, tol=1e-4, pmin=-30, pmax=100, m
 	
 	#check that total norm of modes makes sense
 	if abs(1 - cum_norm[-1])>tol:
-		print('Warning: For e2=%.2g, y=%.2g, nu=%.2g, pmin=%s, pmax=%s, the relative error between the exact norm and the norm estimated with sum is larger than tol=%.3g. (exact - sum)/exact=%.4g'%(e2, y, nu, pmin, pmax, tol, 1 - cum_norm[-1]))
+		warnings.warn('For e2=%.2g, y=%.2g, nu=%.2g, pmin=%s, pmax=%s, the relative error between the exact norm and the norm estimated with sum is larger than tol=%.3g. (exact - sum)/exact=%.4g'%(e2, y, nu, pmin, pmax, tol, 1 - cum_norm[-1]), UserWarning, stacklevel=2)
 	
 	#find how many Fourier modes have to be included
 	N_fourier_needed = 1 + np.searchsorted(cum_norm, cum_norm[-1] - tol, side='right')

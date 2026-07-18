@@ -66,6 +66,22 @@ params_pyEFPE_1 = {'pn_amplitude_order': 0,},
 update_params_pyEFPE_2 = {'pn_amplitude_order': 2,},
 )
 
+comparison_info["Interp_Exact"] = dict(
+pyEFPE_1 = pyEFPEHM,
+pyEFPE_2 = pyEFPEHM,
+labels = ['Interp', 'Exact'],
+params_pyEFPE_1 = {'Interpolate_Amplitudes': True,},
+update_params_pyEFPE_2 = {'Interpolate_Amplitudes': False,},
+)
+
+comparison_info["HorizonAbsorption_True_False"] = dict(
+pyEFPE_1 = pyEFPEHM,
+pyEFPE_2 = pyEFPEHM,
+labels = ['HA_1', 'HA_0'],
+params_pyEFPE_1 = {'horizon_absorption': True,},
+update_params_pyEFPE_2 = {'horizon_absorption': False,},
+)
+
 #Chirp mass bounds as a function of segment length
 mc_low_of_seglen  = {4: 12, 8:  8, 16: 5, 32: 3.3, 64: 2.2, 128: 1.4, 256: 0.95}
 mc_high_of_seglen = {4: 20, 8: 12, 16: 8, 32:   5, 64: 3.3, 128: 2.2, 256:  1.4}
@@ -139,7 +155,7 @@ N_tests = 2000
 Ntries_timings = 5
 
 #type of comparison
-comparison_name = "equalized_pyEFPEHM_vs_pyEFPE"
+comparison_name = "Interp_Exact"
 
 #output directory
 outdir = './outdir/pyEFPE_version_comparisons/'
@@ -160,7 +176,7 @@ mc_low  =  mc_low_of_seglen[seglen]
 mc_high = mc_high_of_seglen[seglen]
 
 #default parameters for pyEFPE
-params_pyEFPE_1 = comparison_info[comparison_name]['params_pyEFPE_1']
+params_pyEFPE_1 = comparison_info[comparison_name]['params_pyEFPE_1'].copy()
 params_pyEFPE_1['distance'] = distance_Mpc
 params_pyEFPE_1['f22_start'] = f_min_gen_fact*f_min
 

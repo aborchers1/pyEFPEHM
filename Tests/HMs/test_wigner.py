@@ -1,5 +1,6 @@
 import numpy as np
 import time
+import pyEFPEHM
 
 #############################################################################################################################
 
@@ -244,20 +245,44 @@ cth = np.random.uniform(low=-1, high=1, size=Ntest)
 phi = np.random.uniform(low=0, high=2*np.pi, size=Ntest)
 zeta = np.random.uniform(low=0, high=2*np.pi, size=Ntest)
 
+#initialize wigner D matrix
+start_soltime = time.time()
+W = pyEFPEHM.wigner.WignerD(mode_array)
+print("pyEFPEHM time to initialize Wigner D matrix class: %s seconds" % (time.time() - start_soltime))
+
 #compute small wigner d matrix
 start_soltime = time.time()
 dl_mpm = compute_necessary_Wigner_small_dl_mpm(cth, mode_array=mode_array)
-print("\nTime to evaluate Wigner (small) d matrix: %s seconds \n" % (time.time() - start_soltime))
+print("\nTime to evaluate Wigner (small) d matrix         : %s seconds" % (time.time() - start_soltime))
+start_soltime = time.time()
+W = pyEFPEHM.wigner.WignerD(mode_array)
+W.update_angles(np.zeros(Ntest), cth, np.zeros(Ntest))
+dl_mpm_pyEFPEHM = [W.D(l, m) for (l, m) in mode_array]
+print("pyEFPEHM time to evaluate Wigner (small) d matrix: %s seconds" % (time.time() - start_soltime))
+dl_mpm_relerror = [2*np.linalg.norm(d1 - d2)/np.linalg.norm(d1 + d2) for (d1, d2) in zip(dl_mpm, dl_mpm_pyEFPEHM)]
+print("Difference between implementation: %s\n"%(dl_mpm_relerror))
 
 #compute Wigner D matrix
 start_soltime = time.time()
 Dl_mpm = compute_necessary_Wigner_Dl_mpm(phi, cth, zeta, mode_array=mode_array)
-print("\nTime to evaluate Wigner D matrix: %s seconds \n" % (time.time() - start_soltime))
+print("\nTime to evaluate Wigner D matrix         : %s seconds" % (time.time() - start_soltime))
+start_soltime = time.time()
+W = pyEFPEHM.wigner.WignerD(mode_array)
+W.update_angles(phi, cth, zeta)
+Dl_mpm_pyEFPEHM = [W.D(l, m) for (l, m) in mode_array]
+print("pyEFPEHM time to evaluate Wigner D matrix: %s seconds" % (time.time() - start_soltime))
+Dl_mpm_relerror = [2*np.linalg.norm(D1 - D2)/np.linalg.norm(D1 + D2) for (D1, D2) in zip(Dl_mpm, Dl_mpm_pyEFPEHM)]
+print("Difference between implementation: %s\n"%(Dl_mpm_relerror))
 
 #compute Spherical harmonic with its dedicated function
 start_soltime = time.time()
 m2_Ylm = compute_m2_Ylm(cth, phi, l_array=l_array)
-print("\nTime to evaluate Spherical Harmonics fast: %s seconds \n" % (time.time() - start_soltime))
+print("\nTime to evaluate Spherical Harmonics         : %s seconds" % (time.time() - start_soltime))
+start_soltime = time.time()
+m2_Ylm_pyEFPEHM = pyEFPEHM.wigner.compute_m2_Ylm(cth, phi, l_array=l_array)
+print("pyEFPEHM time to evaluate Spherical Harmonics: %s seconds" % (time.time() - start_soltime))
+m2_Ylm_relerror = [2*np.linalg.norm(Y1 - Y2)/np.linalg.norm(Y1 + Y2) for (Y1, Y2) in zip(m2_Ylm, m2_Ylm_pyEFPEHM)]
+print("Difference between implementation: %s\n"%(m2_Ylm_relerror))
 
 #compute Spherical Harmonic from wigner matrices
 start_soltime = time.time()

@@ -1,5 +1,6 @@
 import numpy as np
 import scipy.special
+import warnings
 
 from pyEFPEHM.utils.constants import *
 
@@ -184,7 +185,7 @@ class ivp_sol_interp:
 def mass_params_from_m1_m2(m1, m2):
 
 	#check that m1>m2
-	if m1<m2: print('Warning: m1<m2')
+	if m1<m2: warnings.warn("m1 < m2; expected m1 >= m2.", UserWarning, stacklevel=2)
 
 	#now compute mass related stuff
 	M = m1 + m2           #total mass
@@ -231,7 +232,7 @@ def sorted_vals_in_intervals(x, x0, xf):
 	if len(valid_idxs)>0:
 		x_idxs = np.concatenate([np.arange(i_0[idx], i_f[idx]) for idx in valid_idxs])
 	else:
-		x_idxs = np.array([])
+		x_idxs = np.array([], dtype=int)
 	
 	return x_idxs, i_idxs
 
@@ -243,7 +244,7 @@ def series_reversion(a, order=5):
 	#check if the input order is larger than the maximum order implemented
 	max_order=5
 	if order>max_order:
-		print('Warning: Input order=%s. We have implemented reversion only up to order=%s, reverting to that order.'%(order, max_order))
+		warnings.warn("Input order=%s, but series reversion is implemented only up to order=%s. Reverting to that order."%(order, max_order), UserWarning, stacklevel=2)
 		order=max_order
 	#consider the case in which order==1 separately, since it is significantly easier
 	elif order==1:

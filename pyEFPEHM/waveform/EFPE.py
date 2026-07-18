@@ -8,6 +8,8 @@ Licensed under the Apache License. See the LICENSE file in the project root for 
 """
 
 import numpy as np
+import warnings
+
 from pyEFPEHM.utils.utils import *
 from pyEFPEHM.utils.wigner import *
 from pyEFPEHM.utils.cython_utils import my_cgroup_idxs_by_vals
@@ -24,7 +26,7 @@ class pyEFPE:
 
 	def __init__(self, parameters):
 	
-		"""
+		r"""
 		Initialize the class with the given parameters.
 		
 		``parameters`` is a dictionary in which we expect to find the following
@@ -69,7 +71,7 @@ class pyEFPE:
 			Initial orbital phase, in radians - Default: 0
 		mean_anomaly_start : float
 			Initial mean anomaly of quasi-Keplerian parametrization - Default: 0
-		mode_array: array_like or None
+		mode_array: array_like of shape (N,2) or None
 			Array containing [l, m] GW modes to take into account. Only 1PN modes are implemented ([[2,0],[2,1],[2,2],[3,0],[3,1],[3,2],[3,3],[4,0],[4,2],[4,4]])
 			Repeated modes and modes that are inconsistent with the pn_amplitude_order are removed.
 			If mode_array is None, choose all available GW modes.
@@ -128,17 +130,23 @@ class pyEFPE:
 		pn_tidal_order: int
 			Twice the Post-Newtonian order to use in the tidal part of the phasing (i.e. pn_tidal_order=n corresponds to the (n/2)PN order).
 			Tidal effects start at pn_tidal_order=10 and pn_tidal_order=-1 selects the maximum pn order available (=15) - Default: 0
+		horizon_absorption: bool
+			Flag to choose whether to take into account horizon absorption effects. Requires pn_spin_order>=5 (HA enters at 2.5PN); it has no effect otherwise - Default: True
 		Amplitude_tol: float
 			Tolerance in time-domain amplitude. It will control how many Fourier modes are taken into account - Default: 1e-4
-		Amplitude_pmax: float
-			Maximum number of Fourier modes taken into account - Default: 100
+		Amplitude_pmax: int
+			Maximum eccentric harmonic index |p| considered when selecting Fourier modes (modes with p in [-Amplitude_pmax, Amplitude_pmax] are candidates) - Default: 100
+		harmonic_array: array_like of shape (N,3) or None
+			Array containing the (l, m, n) harmonics to compute (throught the whole waveform).
+			If m is negative, the harmonic label in the mode by mode output is transformed by doing (l, m, n)->(l, -m, -n).
+			If None, harmonics are chosen as a function of time by the model to satisfy Amplitude_tol - Default: None
 		DJ2_tol : float
 			Tolerance in J**2 estimate when setting initial conditions - Default: 1e-10
-		RR_sol_rtol: float or array-like, shape (7,)
+		RR_sol_rtol: float or array-like, shape (8,)
 			Relative tolerance when integrating ODEs.
 			If array, relative tolerances on [y, e2, l, dl, DJ2, bpsip, phiz0, zeta0]
 			- Default: [1e-10, 1e-10, 1e-12, 1e-12, 1e-10, 1e-12, 1e-12, 1e-12]
-		RR_sol_atol: float or array-like, shape (7,)
+		RR_sol_atol: float or array-like, shape (8,)
 			Absolute tolerance when integrating ODEs.
 			If array, absolute tolerances on [y, e2, l, dl, DJ2, bpsip, phiz0, zeta0]
 			- Default: [1e-12, 1e-12,  1e-8,  1e-8, 1e-12,  1e-8,  1e-6,  1e-6]
@@ -149,7 +157,7 @@ class pyEFPE:
 		Interpolate_Amplitudes: bool
 			Choose whether or not to interpolate the amplitudes to speed up waveform evaluation - Default: True
 		Interp_points_per_prec_cycle: int
-			Number of points per precession cycle used to interpolate non-secular part of Euler angles \delta\phi_z, \delta\zeta and \cos theta_L - Default: 80
+			Number of points per precession cycle used to interpolate the precession amplitudes - Default: 40
 		Extra_interp_points_Nlm_p: int
 			Number of extra points over the Runge-Kutta segments used to interpolate each Fourier mode amplitude - Default: 0
 		SPA_Frequency_rtol: float
@@ -180,23 +188,31 @@ class pyEFPE:
 		          'pn_spin_order': 8,
 		          'pn_amplitude_order': 2,
 		          'pn_tidal_order': 0,
+		          'horizon_absorption': True,
 		          'Amplitude_tol': 1e-4,
 		          'Amplitude_pmax': 100,
+		          'harmonic_array': None,
 		          'DJ2_tol': 1e-10,
 		          'RR_sol_rtol': [1e-10, 1e-10, 1e-12, 1e-12, 1e-10, 1e-12, 1e-12, 1e-12],
 		          'RR_sol_atol': [1e-12, 1e-12,  1e-8,  1e-8, 1e-12,  1e-8,  1e-6,  1e-6],
 		          'NecessaryModes_UpdatePeriod': 4,
 		          'Series_Reversion_Order': 5,
 		          'Interpolate_Amplitudes': True,
-		          'Interp_points_per_prec_cycle': 80,
+		          'Interp_points_per_prec_cycle': 40,
 		          'Extra_interp_points_Nlm_p': 0,
 		          'SPA_Frequency_rtol': 1e-12,
 		          'SUA_kmax': 1,
 		         }
 		
+		#the set of recognised parameter keys (the defaults plus mass1/mass2, which have no default)
+		valid_keys = set(params) | {'mass1', 'mass2'}
+
 		#update default parameters with input parameters
 		params.update(parameters)
-		
+
+		#validate the input parameters (warn on typos / out-of-range values, raise on invalid masses or eccentricity)
+		self._validate_parameters(parameters, params, valid_keys)
+
 		#save parameters
 		self.params = params
 		
@@ -227,14 +243,14 @@ class pyEFPE:
 		self.phi0 = params['phi_start']
 		self.phi_e0 = params['mean_anomaly_start']
 		if params['mode_array'] is None: params['mode_array'] = [[2,0],[2,1],[2,2],[3,0],[3,1],[3,2],[3,3],[4,0],[4,2],[4,4]]
-		self.mode_array = clean_mode_array(np.asarray(params['mode_array'], dtype=int), pn_amplitude_order=params['pn_amplitude_order'])
+		self.mode_array = clean_mode_array(params['mode_array'], pn_amplitude_order=params['pn_amplitude_order'])
+		self.harmonic_array, self.mode_array = process_harmonic_array(params['harmonic_array'], self.mode_array, pn_amplitude_order=params['pn_amplitude_order'])
 		
 		#if m2>m1, flip everything
 		if self.m2>self.m1:
 			self.m1, self.m2 = self.m2, self.m1
 			self.spin0_1, self.spin0_2 = self.spin0_2, self.spin0_1
-			self.phi0 = self.phi0 + np.pi #flip orbital phase
-			self.phi_e0 = self.phi_e0 + np.pi #flip argument of periastron
+			self.phi0 = self.phi0 + np.pi #flip orbital phase (r -> -r under relabeling). Mean anomaly phi_e0 is unchanged (radial phase from periastron)
 			self.q1, self.q2 = self.q2, self.q1
 			self.o1, self.o2 = self.o2, self.o1
 			self.Lambda2_1,  self.Lambda2_2  =  self.Lambda2_2,  self.Lambda2_1
@@ -253,8 +269,11 @@ class pyEFPE:
 		  Lambda2_1=self.Lambda2_1, Lambda2_2=self.Lambda2_2, Lambda3_1=self.Lambda3_1, Lambda3_2=self.Lambda3_2, Sigma2_1=self.Sigma2_1, Sigma2_2=self.Sigma2_2,
 		  Lambda23_1=self.Lambda23_1, Lambda23_2=self.Lambda23_2, Lambda32_1=self.Lambda32_1, Lambda32_2=self.Lambda32_2,
 		  Sigma23_1=self.Sigma23_1, Sigma23_2=self.Sigma23_2, Sigma32_1=self.Sigma32_1, Sigma32_2=self.Sigma32_2,
-		  pn_phase_order=params['pn_phase_order'], pn_spin_order=params['pn_spin_order'], pn_tidal_order=params['pn_tidal_order'])
+		  pn_phase_order=params['pn_phase_order'], pn_spin_order=params['pn_spin_order'], pn_tidal_order=params['pn_tidal_order'], horizon_absorption=params['horizon_absorption'])
 		
+		#initialize class to compute Wigner D matrices
+		self.Wigner = WignerD(self.mode_array)
+
 		#list of spin -2 spherical harmonics _{-2}Y_{l,m'}
 		l_array      = np.unique(self.mode_array[:,0])
 		self.m2_Ylmp = compute_m2_Ylm(self.cos_theta_JN, self.phi_JN, l_array=l_array)
@@ -287,59 +306,91 @@ class pyEFPE:
 
 		#################### Computation of the necessary modes ####################
 
-		#compute the necessary modes at each segment of the interpolant
-		multipole_idxs, p_necessary = [], []
-		pmin, pmax = -params['Amplitude_pmax'], params['Amplitude_pmax']
-		mmin, mmax = np.amin(self.mode_array[:,1]), np.amax(self.mode_array[:,1])
-		self.mode_interp_idx  = []
+		#if a harmonic_array was provided, set the necessary modes from it
+		if self.harmonic_array is not None:
 		
-		#check in what interpolant segments we actually have to compute necessary modes, fixing the start to make things fit
-		i_interp_check_0 = len(self.sol.ts)%params['NecessaryModes_UpdatePeriod']
-		i_interp_check = np.arange(i_interp_check_0, len(self.sol.ts)+1, params['NecessaryModes_UpdatePeriod'])
-		if i_interp_check_0 != 0: i_interp_check = np.append(0, i_interp_check)
+			#extract the ps from harmonic_array
+			ps = self.harmonic_array[:,2]
+			
+			#extract the mode indices
+			index_map = {tuple(mode): i for i, mode in enumerate(self.mode_array)}
+			mode_idxs = np.array([index_map[tuple(mode)] for mode in self.harmonic_array[:,:2]])
+		
+			#have the user-specified harmonics active at all times
+			N_interp_segments = len(self.sol.ts)
+			self.necessary_multipole_idxs = np.tile(mode_idxs, N_interp_segments)
+			self.necessary_ps = np.tile(ps, N_interp_segments)
+			self.mode_interp_idx = np.repeat(np.arange(N_interp_segments), len(ps))
 
-		#extract the required y, e2 and DJ2
-		ys, e2s, DJ2s = self.sol.ys[0][np.ix_(i_interp_check[:-1],[0,1,4])].T
-		e2s = np.maximum(e2s, 0)
-		
-		#update MSA to compute precesion average value of dchi
-		self.MSA.update(ys, DJ2s)
-		
-		#loop over initial squared eccentricity and PN parameter at each segment
-		for i_interp_0, i_interp_f, y, e2, dchi_prec_avg in zip(i_interp_check[:-1], i_interp_check[1:], ys, e2s, self.MSA.dchi_prec_avg):
+		#Otherwise, finf the necessary modes as a function of time
+		else:
 
-			#obtain necessary modes [l,|m|,p] of N^{l m}_p that have to be taken into account
-			mode_idxs, ps = Fourier_modes_needed(e2, y, self.MSA.nu, self.MSA.dmu, dchi=dchi_prec_avg, tol=params['Amplitude_tol'], pmin=pmin, pmax=pmax, mode_array=self.mode_array, pn_amplitude_order=self.params['pn_amplitude_order'])
+			#compute the necessary modes at each segment of the interpolant
+			self.necessary_multipole_idxs, self.necessary_ps, self.mode_interp_idx = [], [], []
+			pmin, pmax = -params['Amplitude_pmax'], params['Amplitude_pmax']
+			mmin, mmax = np.amin(self.mode_array[:,1]), np.amax(self.mode_array[:,1])
 			
-			#update the pmin and pmax estimates, since e2 will be (generally) decreasing
-			pmin = -1 + min(np.amin(ps), mmin)
-			pmax =  1 + max(np.amax(ps), mmax)
+			#check in what interpolant segments we actually have to compute necessary modes, fixing the start to make things fit
+			i_interp_check_0 = len(self.sol.ts)%params['NecessaryModes_UpdatePeriod']
+			i_interp_check = np.arange(i_interp_check_0, len(self.sol.ts)+1, params['NecessaryModes_UpdatePeriod'])
+			if i_interp_check_0 != 0: i_interp_check = np.append(0, i_interp_check)
+
+			#extract the required y, e2 and DJ2
+			ys, e2s, DJ2s = self.sol.ys[0][np.ix_(i_interp_check[:-1],[0,1,4])].T
+			e2s = np.maximum(e2s, 0)
 			
-			#save |m| and p on lists
-			n_repeat = i_interp_f - i_interp_0
-			multipole_idxs += n_repeat*mode_idxs.tolist()
-			p_necessary    += n_repeat*ps.tolist()
+			#update MSA to compute precesion average value of dchi
+			self.MSA.update(ys, DJ2s)
 			
-			#save the RK interpolant each mode is in
-			self.mode_interp_idx += np.repeat(np.arange(i_interp_0, i_interp_f), len(ps)).tolist()
-			
-		#convert stuff to numpy arrays
-		multipole_idxs = np.array(multipole_idxs)
-		ps = np.array(p_necessary)
-		self.mode_interp_idx  = np.array(self.mode_interp_idx, dtype=int)
+			#Loop over initial squared eccentricity and PN parameter at each segment, saving the modes selected there
+			seg_modes_sets = []
+			for y, e2, dchi_prec_avg in zip(ys, e2s, self.MSA.dchi_prec_avg):
+
+				#obtain necessary modes [l,|m|,p] of N^{l m}_p that have to be taken into account
+				mode_idxs, ps = Fourier_modes_needed(e2, y, self.MSA.nu, self.MSA.dmu, dchi=dchi_prec_avg, tol=params['Amplitude_tol'], pmin=pmin, pmax=pmax, mode_array=self.mode_array, pn_amplitude_order=self.params['pn_amplitude_order'])
+
+				#update the pmin and pmax estimates, since e2 will be (generally) decreasing
+				pmin = -1 + min(np.amin(ps), mmin)
+				pmax =  1 + max(np.amax(ps), mmax)
+
+				#save the modes selected at this segment as a set of tuples (mode_idx, p)
+				seg_modes_sets.append(set(zip(mode_idxs.tolist(), ps.tolist())))
+
+			#Since a mode may only be found to be important when we check the next segment, choose the modes to be the union of the modes selected at each segment and the next one
+			n_seg = len(seg_modes_sets)
+			for i_seg in range(n_seg):
+
+				#extract the intepolant indices in this segment
+				i_interp_0, i_interp_f = i_interp_check[i_seg], i_interp_check[i_seg+1]
+
+				#compute the set of modes as the union between the current and next sets
+				if i_seg+1 < n_seg: seg_mode_set = seg_modes_sets[i_seg] | seg_modes_sets[i_seg+1]
+				else:               seg_mode_set = seg_modes_sets[i_seg]
+
+				#convert set of tuples to two lists
+				mode_idxs, ps = map(list, zip(*seg_mode_set))
+
+				#save |m| and p on lists
+				n_repeat = i_interp_f - i_interp_0
+				self.necessary_multipole_idxs += n_repeat*mode_idxs
+				self.necessary_ps             += n_repeat*ps
+
+				#save the RK interpolant each mode is in
+				self.mode_interp_idx += np.repeat(np.arange(i_interp_0, i_interp_f), len(ps)).tolist()
+
+		#save stuff as numpy arrays
+		self.necessary_multipole_idxs = np.asarray(self.necessary_multipole_idxs, dtype=int)
+		self.necessary_ps = np.asarray(self.necessary_ps, dtype=int)
+		self.mode_interp_idx  = np.asarray(self.mode_interp_idx, dtype=int)
 
 		####################### Interpolation of the phases #######################
 
 		#compute m for each mode
-		mraws = self.mode_array[multipole_idxs,1]
+		mraws = self.mode_array[self.necessary_multipole_idxs,1]
 
 		#make sure that the phase p\lambda + (m - p)\delta\lambda is positive by doing [p,m]->[-p,-m]
-		ms = np.where(ps>=0, mraws, -mraws)
-		pabs = np.abs(ps)
-		
-		#save the multipole_idx and p used to determine each mode
-		self.necessary_multipole_idxs = multipole_idxs
-		self.necessary_ps = ps
+		ms = np.where(self.necessary_ps>=0, mraws, -mraws)
+		pabs = np.abs(self.necessary_ps)
 		
 		#compute the interpolant of the phase of each mode: p\lambda + (m - p)\delta\lambda
 		ms_pabs = ms - pabs
@@ -375,18 +426,46 @@ class pyEFPE:
 		else:
 			self.compute_Nlm_p = self.compute_Nlm_p_exact
 
+	#validate the user-provided parameter dictionary: warn on unrecognised keys and check physical ranges
+	@staticmethod
+	def _validate_parameters(parameters, params, valid_keys):
+
+		#warn about unrecognised parameter keys (likely typos), which would otherwise be silently ignored
+		unknown_keys = set(parameters) - valid_keys
+		if unknown_keys: warnings.warn("Ignoring unrecognised pyEFPE parameter(s) %s (possible typo); they have no effect."%(sorted(unknown_keys)), UserWarning, stacklevel=3)
+
+		#masses must be positive and the initial eccentricity in [0, 1)
+		if (params['mass1']<=0) or (params['mass2']<=0): raise ValueError("mass1 and mass2 must be positive (got mass1=%s, mass2=%s)."%(params['mass1'], params['mass2']))
+		if not (0<=params['e_start']<1): raise ValueError("e_start must be in [0, 1) (got e_start=%s)."%(params['e_start']))
+
+		#warn if either dimensionless spin magnitude exceeds the Kerr bound |chi|<=1
+		chi1_sq = params['spin1x']**2 + params['spin1y']**2 + params['spin1z']**2
+		chi2_sq = params['spin2x']**2 + params['spin2y']**2 + params['spin2z']**2
+		if (chi1_sq>1) or (chi2_sq>1): warnings.warn("Dimensionless spin magnitude exceeds the Kerr bound |chi|<=1 (|chi1|=%.3f, |chi2|=%.3f)."%(chi1_sq**0.5, chi2_sq**0.5), UserWarning, stacklevel=3)
+
+		#warn if tidal deformabilities are provided but fully ignored (tidal terms switch on only at pn_tidal_order>=10)
+		if (0<=params['pn_tidal_order']<10) and ((params['Lambda2_1']!=0) or (params['Lambda2_2']!=0)):
+			warnings.warn("Nonzero tidal deformabilities were provided but pn_tidal_order<10, so tidal effects are ignored. Set pn_tidal_order>=10 (or -1) to include them.", UserWarning, stacklevel=3)
+
+		#horizon absorption enters at 2.5PN (needs pn_spin_order>=5) and assumes black-hole components
+		if params['horizon_absorption']:
+			if (0<=params['pn_spin_order']<5):
+				warnings.warn("horizon_absorption=True has no effect when pn_spin_order<5 (HA enters at 2.5PN).", UserWarning, stacklevel=3)
+			elif (not (0<=params['pn_tidal_order']<10)) and ((params['Lambda2_1']!=0) or (params['Lambda2_2']!=0)):
+				warnings.warn("horizon_absorption=True applies black-hole horizon flux to a component with nonzero tidal Lambda2.", UserWarning, stacklevel=3)
+
 	#function to compute stationary times given an input array of frequencies (see Eq.(46) of arXiv:1801.08542)
 	def stationary_times(self, freqs, rtol=1e-12, max_iter=3):
 		
 		#compute the omega associated with these frequencies
-		ws = 2*np.pi*freqs
+		ws = 2*np.pi*np.asarray(freqs, dtype=float)
 
 		#check in which interpolant of the different modes these ws are in
 		f_idxs, interp_idxs = sorted_vals_in_intervals(ws, self.ts_interp_w0, self.ts_interp_wf)
 		
 		#handle the case where there are no stationary times
 		if len(f_idxs)==0:
-			print("Warning: waveform has no stationary times for params=%s and freqs=%s"%(self.params, freqs))
+			warnings.warn("Waveform has no stationary times for params=%s and freqs=%s"%(self.params, freqs), UserWarning, stacklevel=2)
 			return np.array([]), np.array([]), np.array([]), np.array([]), np.array([])
 		
 		#we will need the ws at the f_idxs
@@ -468,29 +547,39 @@ class pyEFPE:
 		#return all the SPA related things that will be needed in the future
 		return f_idxs, interp_idxs, t_SPA, psi_SPA, T_SPA
 
-	#function to compute exact Wigner D matrices D^l_{m',m}
-	def compute_Dl_mpm_exact(self, times):
-
-		#compute the Euler angles and y, e at the input times
-		y, e2, DJ2, bpsip, phiz, zeta = self.sol(times, idxs=[0,1,4,5,6,7])
+	#function to compute Euler angles
+	def compute_Euler_angles(self, times):
 
 		#if the perpendicular spins are 0, do not allow precession (this could be done deeper in the code)
 		if (self.MSA.sp2_1==0) and (self.MSA.sp2_2==0):
-			phiz, zeta, costhL = np.zeros_like(y), np.zeros_like(y), np.ones_like(y)
+			return np.zeros_like(times), np.zeros_like(times), np.ones_like(times)
 		#otherwise compute the full Euler angles
 		else:
+
+			#compute the average Euler angles and y, e at the input times
+			y, e2, DJ2, bpsip, phiz, zeta = self.sol(times, idxs=[0,1,4,5,6,7])
+
+			#compute precession Euler angles
 			self.MSA.update(y, DJ2)
 			dphiz, dzeta, costhL = self.MSA.precession_Euler_angles(bpsip)
 			phiz += dphiz
 			zeta += dzeta
 
-		#compute the Wigner Matrices at the input times
-		Dl_mpm = compute_necessary_Wigner_Dl_mpm(phiz, costhL, zeta, mode_array=self.mode_array)
-		
-		#return the Wigner matrices with the correct shape to be later multiplied
-		return [np.transpose(Dl_mpm_i) for Dl_mpm_i in Dl_mpm]
+			return phiz, zeta, costhL
+	
+	#function to compute exact precession amplitudes \mathsf{A}^{+,\times}_{l,m}
+	def compute_Apc_prec_exact(self, times, im):
 
-	#method to interpolate the precession amplitudes \mathsf{A}^{+,\times}_{l,m} = \sum_{m'=-l}^{l} \mathsf{P}^{+,\times}_{l,m,m'}(\Theta, \Phi)  D^l_{m'm}(\phi_z,\theta_L,\zeta), where
+		#compute the Euler angles at the input times
+		phiz, zeta, costhL = self.compute_Euler_angles(times)
+
+		#update Wigner matrix computer with those angles
+		self.Wigner.update_angles(phiz, costhL, zeta)
+
+		#return the projected Wigner D-Matrix at the input times
+		return np.tensordot(self.Wigner.D(*self.mode_array[im]), self.Apc_projs[im], axes=(0, 0))
+		
+	#method to interpolate the precession amplitudes \mathsf{A}^{+,\times}_{l,m} = h_0 \sum_{m'=-l}^{l} \mathsf{P}^{+,\times}_{l,m,m'}(\Theta, \Phi)  D^l_{m'm}(\phi_z,\theta_L,\zeta), where
 	#\mathsf{P}^{+}_{l,m,m'} = \frac{1}{2}\left[{}_{-2}Y^{l m'} + (-1)^{l + m + m'} ({}_{-2}Y^{l -m'})^{*}\right]
 	#\mathsf{P}^{\times}_{l,m,m'} = \frac{\rmi}{2}\left[ {}_{-2}Y^{l m'} - (-1)^{l + m + m'} ({}_{-2}Y^{l -m'})^{*}\right]
 	def interpolate_Apc_prec(self, ):
@@ -529,14 +618,26 @@ class pyEFPE:
 		#take only the strictly increasing times
 		self.prec_interp_ts = np.unique(self.prec_interp_ts)
 
-		#compute the necessary Wigner matrices at the interpolation times for precession
-		Dl_mpm_interp = self.compute_Dl_mpm_exact(self.prec_interp_ts)
+		#compute the Euler angles at the interpolation times
+		phiz, zeta, costhL = self.compute_Euler_angles(self.prec_interp_ts)
 
-		#compute the precession amplitudes with m>=0, the ones with m<0 can be obtained from \mathsf{A}^{+,\times}_{l,-m} = (-1)^l conj(\mathsf{A}^{+,\times}_{l, m})
-		self.Apc_prec_interp = [np.matmul(Dl_mpm_interp_i, Apc_proj_i) for Dl_mpm_interp_i, Apc_proj_i in zip(Dl_mpm_interp, self.Apc_projs)]
-		
-		#compute a cubic spline for each mode
-		self.Apc_prec_cspline = [CubicSpline(self.prec_interp_ts, Apc_prec_interp_i, axis=0) for Apc_prec_interp_i in self.Apc_prec_interp]
+		#update Wigner matrix computer with those angles
+		self.Wigner.update_angles(phiz, costhL, zeta)
+
+		#Interpolate the precession amplitudes with m>=0, the ones with m<0 can be obtained from \mathsf{A}^{+,\times}_{l,-m} = (-1)^l conj(\mathsf{A}^{+,\times}_{l, m})
+		self.Apc_prec_interp, self.Apc_prec_cspline = [], []
+		unique_necessary_multipole_idxs = np.unique(self.necessary_multipole_idxs)
+		for im, mode in enumerate(self.mode_array):
+			
+			#if the mode is used, interpolate it for all available times. The time range for each could be taylored, taking into account SUA time-shifts.
+			if im in unique_necessary_multipole_idxs:
+				#compute precession amplitude for this mode
+				self.Apc_prec_interp.append(np.tensordot(self.Wigner.D(*mode), self.Apc_projs[im], axes=(0, 0)))
+				#compute a cubic spline for this mode
+				self.Apc_prec_cspline.append(CubicSpline(self.prec_interp_ts, self.Apc_prec_interp[-1], axis=0))
+			else:
+				self.Apc_prec_interp.append(None)
+				self.Apc_prec_cspline.append(None)
 
 	#function to compute Apc_prec for a given multipole index and time
 	def raw_Apc_prec_im(self, times, im, m_neg_idxs):
@@ -545,7 +646,7 @@ class pyEFPE:
 		if self.params['Interpolate_Amplitudes']:
 			Apc_prec_im = self.Apc_prec_cspline[im](times)
 		else:
-			Apc_prec_im = np.matmul(self.compute_Dl_mpm_exact(times)[im], self.Apc_projs[im])
+			Apc_prec_im = self.compute_Apc_prec_exact(times, im)
 
 		#for modes with negative m, use that \mathsf{A}^{+,\times}_{l,-m} = (-1)^l conj(\mathsf{A}^{+,\times}_{l, m})
 		if len(m_neg_idxs)>0:
@@ -564,8 +665,7 @@ class pyEFPE:
 		p_neg_idxs = (ps < 0)
 		
 		#group by multipole_idxs
-		all_grouped_idxs, slice_idxs = my_cgroup_idxs_by_vals(multipole_idxs)
-		grouped_idxs = np.split(all_grouped_idxs, slice_idxs)
+		grouped_idxs = my_cgroup_idxs_by_vals(multipole_idxs)
 
 		#loop over modes
 		for im, im_idxs in enumerate(grouped_idxs):
@@ -725,8 +825,7 @@ class pyEFPE:
 		Nlm_p_idxs = self.interp_idx_to_Nlm_p_idx[interp_idxs]
 
 		#group by Nlm_p_idxs
-		all_grouped_idxs, slice_idxs = my_cgroup_idxs_by_vals(Nlm_p_idxs)
-		grouped_idxs = np.split(all_grouped_idxs, slice_idxs)
+		grouped_idxs = my_cgroup_idxs_by_vals(Nlm_p_idxs)
 		
 		#loop over each different spline
 		for iNlm_p, idxs in enumerate(grouped_idxs):
@@ -811,7 +910,7 @@ class pyEFPE:
 
 	#function to compute the modes h_{l,m,n}(f) given an input array of frequencies
 	def generate_modes(self, freqs, return_waveform_pieces=False):
-		"""
+		r"""
 		Compute the frequency-domain (l, m, n) waveform modes (see Eq.(18) of 2502.03929).
 		Note that in the code, `n` is called `p`.
 
@@ -872,7 +971,7 @@ class pyEFPE:
 		
 		#group by multipole_idxs
 		multipole_idxs = self.necessary_multipole_idxs[interp_idxs]
-		grouped_im_idxs = np.split(*my_cgroup_idxs_by_vals(multipole_idxs))
+		grouped_im_idxs = my_cgroup_idxs_by_vals(multipole_idxs)
 		
 		#loop over (l,m) modes
 		for im, im_idxs in enumerate(grouped_im_idxs):
@@ -890,7 +989,7 @@ class pyEFPE:
 			pmin = np.amin(ps)
 
 			#divide also by the value of p
-			grouped_ip_idxs = np.split(*my_cgroup_idxs_by_vals(ps - pmin))
+			grouped_ip_idxs = my_cgroup_idxs_by_vals(ps - pmin)
 			
 			#loop over p modes
 			for ip, p_idxs in enumerate(grouped_ip_idxs):
@@ -971,14 +1070,14 @@ class pyEFPE:
 			times = np.arange(self.sol.all_ts[0], self.sol.all_ts[-1], delta_t)
 			#by construction, all times are valid
 			i_valid = np.arange(len(times))
-			valid_times = times.copy()
+			valid_times = times
 		else:
 			#make sure it is a numpy array
 			times = np.asarray(times)
 			#find valid times (i.e. where the system has been simulated)
 			i_valid = np.nonzero((times>=self.sol.all_ts[0]) & (times<=self.sol.all_ts[-1]))[0]
 			valid_times = times[i_valid]
-		
+
 		#find the values of interp_idxs for each time
 		t_idxs, interp_idxs = sorted_vals_in_intervals(valid_times, self.sol.all_ts[self.mode_interp_idx], self.sol.all_ts[self.mode_interp_idx+1])
 		ts_compute = valid_times[t_idxs]
@@ -1022,7 +1121,7 @@ class pyEFPE:
 
 	#Function to compute the time domain waveform modes h_{l,m,n}(t) given an input array of times (or a time spacing)
 	def generate_tdomain_modes(self, times=None, delta_t=None, return_waveform_pieces=False):
-		"""
+		r"""
 		Compute the time-domain (l, m, n) waveform modes (see Eq.(18) of 2502.03929).
 		Note that in the code, `n` is called `p`.
 
@@ -1080,14 +1179,14 @@ class pyEFPE:
 			times = np.arange(self.sol.all_ts[0], self.sol.all_ts[-1], delta_t)
 			#by construction, all times are valid
 			i_valid = np.arange(len(times))
-			valid_times = times.copy()
+			valid_times = times
 		else:
 			#make sure it is a numpy array
 			times = np.asarray(times)
 			#find valid times (i.e. where the system has been simulated)
 			i_valid = np.nonzero((times>=self.sol.all_ts[0]) & (times<=self.sol.all_ts[-1]))[0]
 			valid_times = times[i_valid]
-		
+
 		#initialize dictionary to store the result
 		result = {'times': times, 'modes': {}}
 		
@@ -1104,7 +1203,7 @@ class pyEFPE:
 
 		#group by multipole_idxs
 		multipole_idxs = self.necessary_multipole_idxs[interp_idxs]
-		grouped_im_idxs = np.split(*my_cgroup_idxs_by_vals(multipole_idxs))
+		grouped_im_idxs = my_cgroup_idxs_by_vals(multipole_idxs)
 
 		#loop over (l,m) modes
 		for im, im_idxs in enumerate(grouped_im_idxs):
@@ -1131,7 +1230,7 @@ class pyEFPE:
 			Apc_prec_im = self.raw_Apc_prec_im(valid_times[t_idxs_im_min:(t_idxs_im_max+1)], im, np.array([]))
 
 			#divide also by the value of p
-			grouped_ip_idxs = np.split(*my_cgroup_idxs_by_vals(ps - pmin))
+			grouped_ip_idxs = my_cgroup_idxs_by_vals(ps - pmin)
 
 			#loop over p modes
 			for ip, p_idxs in enumerate(grouped_ip_idxs):

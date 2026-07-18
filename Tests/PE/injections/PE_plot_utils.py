@@ -6,6 +6,10 @@ from matplotlib import pyplot as plt
 #parameter names and labels dictionary
 parameter_names = {'mass_1': r'$m_1 \, [M_\odot]$',
                    'mass_2': r'$m_2 \, [M_\odot]$',
+                   'a_1': r'$\chi_1$',
+                   'a_2': r'$\chi_2$',
+                   'tilt_1': r'$\theta_1$',
+                   'tilt_2': r'$\theta_2$',
                    'chirp_mass': r'$\mathcal{M}_c \, [M_\odot]$',
                    'mass_ratio': r'$q$',
                    'eccentricity': r'$e_0$',
@@ -83,6 +87,135 @@ def plot_density(posterior, plot_key, injection_params=None, bins=25, density=Tr
 		ax.set_title(title_label, fontsize=label_fontsize)
 
 	plt.tight_layout()
+	return fig
+
+#class to compute bounded KDEs
+from scipy.stats import gaussian_kde
+class Bounded1DKDE(gaussian_kde):
+    def __init__(self, data, order=1, x_lo=None, x_hi=None, **kwargs):
+        data = np.atleast_1d(data)
+        if data.ndim != 1:
+            raise TypeError('Error, expected one-dimensional data.')
+
+        self.data = data.T
+        
+        self.x_lo  = x_lo
+        self.x_hi  = x_hi
+        self.order = order
+
+        super().__init__(self.data, **kwargs)
+
+    def __call__(self, x_array):
+        x_array = np.atleast_1d(x_array)
+        bounds  = np.zeros(x_array.shape[0],dtype='bool')
+
+        if self.x_lo is not None:
+            bounds[x_array < self.x_lo] = True
+        if self.x_hi is not None:
+            bounds[x_array > self.x_hi] = True
+
+        pdf         = self.evaluate(x_array)
+        pdf[bounds] = 0.0
+        return pdf
+
+    def evaluate_pdf(self, x):
+        return super().evaluate(x)
+
+    def evaluate_higher_order(self, x_array):
+        pass
+
+    def evaluate(self, x_array):
+        if self.order == 1:
+            return self.evaluate_linear(x_array)
+        else:
+            raise Exception('Error: Higher order corrections not yet implemented');
+
+    def evaluate_linear(self, x_array):
+        xs  = x_array.T
+        pdf = self.evaluate_pdf(xs)
+        if self.x_lo is not None:
+            pdf += self.evaluate_pdf(2.0 * self.x_lo - xs)
+        if self.x_hi is not None:
+            pdf += self.evaluate_pdf(2.0 * self.x_hi - xs)
+        return pdf
+
+#make multiple density plots
+def plot_multiple_densities(posteriors, plot_keys, plot_runs=None, injection_params=None, bw_method=None, colors=None, linestyles=None, posterior_fraction_to_plot=0.99, quantiles=None, fig_height_per_dim=2.5, fig_width=9, n_legend_cols=2, linewidth=2, alpha=1, tick_fontsize=18, label_fontsize=18, legend_fontsize=18,n_grid=500):
+	
+	from matplotlib import pyplot as plt
+
+	#obtain parameter names
+	param_labels = [parameter_names[plot_key] if plot_key in parameter_names.keys() else plot_key for plot_key in plot_keys]
+
+	#if plot_runs is not given, plot all
+	if plot_runs is None: plot_runs = posteriors.keys()
+
+	#if colors is not given, use default colors for plots
+	if colors is None: colors = [f'C{i}' for i in range(len(plot_runs))]
+
+	#if linestyles  is not given, use default linestyle for plots
+	if linestyles is None: linestyles = ['-' for i in range(len(plot_runs))]
+
+	#make plot
+	fig, axs = plt.subplots(nrows=len(plot_keys), figsize=(fig_width, fig_height_per_dim*len(plot_keys)), constrained_layout=True, squeeze=False)
+	
+	#compute the percentiles to plot histograms over
+	plot_range_percentiles = 100.*np.array([0.5*(1 - posterior_fraction_to_plot), 0.5*( 1 + posterior_fraction_to_plot)])
+	
+	for iparam, (ax, plot_key, param_label) in enumerate(zip(axs.flatten(), plot_keys, param_labels)):
+		
+		#initialize plot_range
+		xmin, xmax = np.inf, -np.inf
+		
+		for irun, (plot_run, color, linestyle) in enumerate(zip(plot_runs, colors, linestyles)):
+
+			#Find x-range for this run
+			samples = posteriors[plot_run][plot_key]
+			samples = samples[np.isfinite(samples)]
+			xmin_i, xmax_i = np.percentile(samples, plot_range_percentiles)
+
+			#obtain and show injection value
+			if injection_params is not None:
+				inj_val = injection_params[plot_run].get(plot_key, 0.)
+				ax.axvline(x=inj_val, color='k', linewidth=linewidth)
+				
+				#Make sure injection value is not cutoff by xmin, xmax
+				xmin = min(xmin, inj_val)
+				xmax = max(xmax, inj_val)
+
+			#update x-range for plot
+			xmin = min(xmin, xmin_i)
+			xmax = max(xmax, xmax_i)
+	
+			#if required compute and plot quantiles
+			if quantiles is not None:
+				#compute the value of the quantiles
+				qs = np.percentile(posteriors[plot_run][plot_key], 100*np.asarray(quantiles))
+				#plot them
+				for q in qs: ax.axvline(x=q, color=color, linestyle='--')
+
+			#compute kde
+			x_lo = min(np.amin(samples), xmin_i)
+			x_hi = max(np.amax(samples), xmax_i)
+			kde = Bounded1DKDE(samples, x_lo=x_lo, x_hi=x_hi, bw_method=bw_method)
+			
+			#evaluate kde
+			x_grid = np.linspace(x_lo, x_hi, n_grid)
+			y_grid = kde(x_grid)
+
+			#plot kde
+			ax.plot(x_grid, y_grid, color=color, linestyle=linestyle, label=plot_run, linewidth=linewidth, alpha=alpha)
+
+		ax.set_ylabel('Posterior PDF', fontsize=label_fontsize)
+		ax.set_xlabel(param_label, fontsize=label_fontsize)
+		ax.tick_params(axis="both", which="major", labelsize=tick_fontsize)
+		ax.set_xlim((xmin, xmax))
+		ax.set_ylim(bottom=0)
+	
+	# Use handles/labels from the first axis only to avoid repeated legend entries
+	handles, labels = axs.flatten()[0].get_legend_handles_labels()
+	fig.legend(handles, labels, loc='outside upper center', ncol=n_legend_cols, fontsize=legend_fontsize, frameon=False,)
+
 	return fig
 
 

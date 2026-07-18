@@ -2,6 +2,7 @@ import numpy as np
 import math
 import scipy.special
 from scipy.integrate import solve_ivp
+import warnings
 
 from pyEFPEHM.utils.utils import *
 #import my polynomial class with cython
@@ -17,8 +18,8 @@ from pyEFPEHM.utils.cython_utils import my_cpoly
 #function to compute initial conditions in v=[y, e2, l, dl, DJ2, bpsip, phiz0, zeta0]
 def initial_conditions_for_RR_eqs(f0_orb, ff_orb, e0, m1, m2, spin0_1, spin0_2, inclination, phi0, phi_e0, DJ2_tol=1e-10, DJ2_max_iter=10, pn_spin_order=6):
 
-	'''
-	Function to compute initial conditions and initialize our waveform. We try to follow the conventions of LAL. 
+	r'''
+	Function to compute initial conditions and initialize our waveform. We try to follow the conventions of LAL.
 	https://lscsoft.docs.ligo.org/lalsuite/lalsimulation/group__lalsimulation__inspiral.html
 	The direction of observation N is on the z axis, and the orbital angular momentum is on the x-z plane. 
 	The inclination is the angle between L and N. 
@@ -57,19 +58,24 @@ def initial_conditions_for_RR_eqs(f0_orb, ff_orb, e0, m1, m2, spin0_1, spin0_2, 
 	e20 = e0*e0
 
 	#compute initial and final y using Eq.(5)
-	y0 = ((2*np.pi*M*f0_orb)**(1/3))/np.sqrt(1-e20)
+	y0 = ((2*np.pi*M*f0_orb)**(1./3.))/np.sqrt(1-e20)
 	
 	#if final frequency is None, integrate to the ISCO
 	yf_ISCO = 6**-0.5
 	if ff_orb is None:
 		yf = yf_ISCO
-	#Otherwise, get final y from final orbital frequency. Assume all eccentricity has been radiated. From Eq.(5): y = (M\omega)^{1/3}/(1-e2)^{1/2}
+	#Otherwise, get final y from final orbital frequency.
 	else:
-		yf = (2*np.pi*M*ff_orb)**(1/3)
+
+		#Use the 0PN estimate for the final eccentricity. This is an upper bound on the final eccentricity (see 2604.11903)
+		e2f = float(compute_e2_of_f_0PN(ff_orb, e20, f0_orb))
+
+		#The 0PN e2f leads to a slightly over-estimated yf (which is good to have some more padding)
+		yf = ((2*np.pi*M*ff_orb)**(1./3.))/np.sqrt(1 - e2f)
 		
 		#check that we are not surpassing the ISCO
 		if yf > yf_ISCO:
-			print("WARNING: With input final orbital frequency, yf=%.3f and the ISCO is surpassed, setting yf=yISCO=%.3f"%(yf, yf_ISCO))
+			warnings.warn("With input final orbital frequency, yf=%.3f and the ISCO is surpassed, setting yf=yISCO=%.3f"%(yf, yf_ISCO), UserWarning, stacklevel=2)
 			yf = yf_ISCO
 	
 	#compute initial \lambda
@@ -234,10 +240,13 @@ def solve_ivp_RR_eqs_t(v_ini, PN_derivatives, MSA, yf, rtol=[1e-10, 1e-10, 1e-12
 
 	#check if integration was stopped by reaching the end of t_span
 	if ivp_sol.status==0 and max_duration is None:
-		print("Warning: ODE integration stopped because limit time (t=%ss) was reached, with y=%s, yf=%s,"%(tmax, ivp_sol.y[0,-1], yf))
-		print("v_ini=%s, m1=%s, m2=%s, sz_1=%s, sz_2=%s, sp2_1=%s, sp2_2=%s"%(list(v_ini), MSA.m1, MSA.m2, MSA.sz_1, MSA.sz_2, MSA.sp2_1, MSA.sp2_2))
+		warnings.warn(
+			"ODE integration stopped because the limit time (t=%ss) was reached, with y=%s, yf=%s, "
+			"v_ini=%s, m1=%s, m2=%s, sz_1=%s, sz_2=%s, sp2_1=%s, sp2_2=%s"
+			%(tmax, ivp_sol.y[0,-1], yf, list(v_ini), MSA.m1, MSA.m2, MSA.sz_1, MSA.sz_2, MSA.sp2_1, MSA.sp2_2),
+			RuntimeWarning, stacklevel=2)
 	if ivp_sol.status==-1:
-		print("Warning: ODE integration stopped because required step size is less than spacing between numbers")
+		warnings.warn("ODE integration stopped because the required step size is below floating-point spacing.", RuntimeWarning, stacklevel=2)
 	
 	#estimate the value of the final time from coalescence using final y and e2
 	tf = tLO_func(ivp_sol.y[0,-1], ivp_sol.y[1,-1], MSA.m1, MSA.m2)
@@ -250,7 +259,7 @@ def solve_ivp_RR_eqs_t(v_ini, PN_derivatives, MSA, yf, rtol=[1e-10, 1e-10, 1e-12
 def compute_ak_SUA(kmax):
 
 	#if kmax>9, there are problems with numerical precission, throw a warning
-	if kmax>9: print('Warning: for SUA_kmax>9, finite precission errors when solving system of equations lead to untrustworthy values of a_{k,kmax}.')
+	if kmax>9: warnings.warn("For SUA_kmax>9, finite-precision errors make the solved a_{k,kmax} values untrustworthy.", UserWarning, stacklevel=2)
 
 	#rewritte it as a linear system M*a = b
 	M = np.zeros((kmax+1, kmax+1), dtype=np.complex128)
@@ -317,7 +326,7 @@ class MultipleScaleAnalysis:
 		#set up the pn_spin_order
 		if pn_spin_order==-1: self.pn_spin_order = 8
 		else:                 self.pn_spin_order = pn_spin_order
-		if self.pn_spin_order>8 : print('Warning: pn_spin_order>8 not implemented. Input pn_spin_order: %s'%(self.pn_spin_order))
+		if self.pn_spin_order>8 : warnings.warn("pn_spin_order>8 not implemented. Input pn_spin_order: %s"%(self.pn_spin_order), UserWarning, stacklevel=2)
 
 		#set up the number of times to solve cubic equation
 		#for pn_spin_order<= 4, it is unnecessary to do it more than once
@@ -506,7 +515,7 @@ class MultipleScaleAnalysis:
 		#compute constants in \Omega_{lN} = ws*(s1+s2) + wd*(s1-s2) appearing in \D lN = y^6  \Omega_{lN} x lN
 		ws, wd = self.PN_compute_ws_wd(y, chi_eff, dchi)
 		
-		#When cJmod->0, ADphiJ and ADphiP can diverge, but the equations behave as if ADphiJ=2*ws/bJ and ADphiP=0
+		#When cJmod->0, ADphiJ and ADphiP can diverge, but the equations behave as if ADphiJ=ws/bJ and ADphiP=0
 		#constant in front of J in \D\phi
 		ADphiJ = self.safe_divide(wd + self.kchi*ws                           , self.cJmod, min_den=self.dmu_small_threas, out=self.safe_divide(ws, self.bJ))
 		#constant in front of elliptic integrals in \D\phi
@@ -885,7 +894,7 @@ class pyEFPE_PN_derivatives:
 	def __init__(self, m1, m2, s2_1, s2_2, q1=1, q2=1, o1=1, o2=1,
 	                   Lambda2_1=0, Lambda2_2=0, Lambda3_1=0, Lambda3_2=0, Sigma2_1=0, Sigma2_2=0,
 	                   Lambda23_1=0, Lambda23_2=0, Lambda32_1=0, Lambda32_2=0, Sigma23_1=0, Sigma23_2=0, Sigma32_1=0, Sigma32_2=0,
-	                   pn_phase_order=9, pn_spin_order=8, pn_tidal_order=0):
+	                   pn_phase_order=9, pn_spin_order=8, pn_tidal_order=0, horizon_absorption=True):
 		
 		#save pn orders, taking into account that an order of -1 means to take the maximum order
 		if pn_phase_order==-1: self.pn_phase_order = 9
@@ -901,10 +910,13 @@ class pyEFPE_PN_derivatives:
 		self.pn_max_order = max(self.pn_phase_order, self.pn_spin_order)
 		
 		#if we are requesting a pn order higher than what is implemented, throw a Warning
-		if self.pn_phase_order>9 : print('Warning: pn_phase_order>9 not implemented. Input pn_phase_order: %s'%(self.pn_phase_order))
-		if self.pn_spin_order >8 : print('Warning: pn_spin_order>8 not implemented. Input pn_spin_order: %s'%(self.pn_spin_order))
-		if self.pn_tidal_order>15: print('Warning: pn_tidal_order>15 not implemented. Input pn_tidal_order: %s'%(self.pn_tidal_order))
-		
+		if self.pn_phase_order>9 : warnings.warn("pn_phase_order>9 not implemented. Input pn_phase_order: %s"%(self.pn_phase_order), UserWarning, stacklevel=2)
+		if self.pn_spin_order >8 : warnings.warn("pn_spin_order>8 not implemented. Input pn_spin_order: %s"%(self.pn_spin_order), UserWarning, stacklevel=2)
+		if self.pn_tidal_order>15: warnings.warn("pn_tidal_order>15 not implemented. Input pn_tidal_order: %s"%(self.pn_tidal_order), UserWarning, stacklevel=2)
+
+		#save weather or not horizon absorption effects are taken into account
+		self.horizon_absorption = horizon_absorption
+
 		#compute mass related stuff
 		M, mu1, mu2, nu, dmu = mass_params_from_m1_m2(m1, m2)
 		nu2 = nu*nu
@@ -1032,6 +1044,15 @@ class pyEFPE_PN_derivatives:
 		self.chidch_sqrt_b6SS = my_cpoly(np.array([(21112./45. + (1624./45.)*dqS)*dmu + (21112./45. - (1624./15.)*nu)*dqA, (29861./30. + (2297./30.)*dqS)*dmu + (29861./30. - (2297./10.)*nu)*dqA, (793./90. + (61./90.)*dqS)*dmu + (793./90. - (61./30.)*nu)*dqA]))
 		self.dch2_p_b6SS = my_cpoly(np.array([8887./135. + (2852./105.)*dqS + (3461./30.)*dqAdmu + (-(13127./27.) - (14461./45.)*dqS)*nu, 161077./540. + (1464091./840.)*dqS + (11007./40.)*dqAdmu + (-(185723./270.) - (21865./12.)*dqS)*nu, 14827./90. + (166844./105.)*dqS + (2941./48.)*dqAdmu + (-(45373./360.) - (222533./180.)*dqS)*nu, 283./32. + (365363./4480.)*dqS + (511./640.)*dqAdmu + (-(117./20.) - (1287./20.)*dqS)*nu]))
 		self.dch2_sqrt_b6SS = my_cpoly(np.array([812./45. + (10556./45.)*dqS + (812./45.)*dqAdmu + (-(6496./45.) - (812./15.)*dqS)*nu, 2297./60. + (29861./60.)*dqS + (2297./60.)*dqAdmu + (-(4594./15.) - (2297./20.)*dqS)*nu, 61./180. + (793./180.)*dqS + (61./180.)*dqAdmu + (-(122./45.) - (61./60.)*dqS)*nu]))
+		
+		#compute the contribution of Horizon Absorption
+		self.pref_a5H = my_cpoly(np.array([ -4./5., -12./5.,  -3./10.]))
+		self.pref_b5H = my_cpoly(np.array([-44./5., -66./5., -11./10.]))
+		
+		self.chi_c5H     = 1. - 2.*nu + (9./8.)*s2iS
+		self.dch_c5H     = dmu + (9./8.)*s2iA
+		self.chidch2_c5H = 45./16.
+		self.chi3_c5H    = 15./16.
 		
 		#store the e^{2n} coefficients of the non-spinning part of the periastron precession k
 		self.k0NS = 3
@@ -1230,6 +1251,10 @@ class pyEFPE_PN_derivatives:
 				Dy  += chi_eff*(self.chi_p_a5SO(e2) + e2sqrt*self.chi_e2sqrt_a5SO(e2)) + dchi*(self.dch_p_a5SO(e2) + e2sqrt*self.dch_e2sqrt_a5SO(e2))
 				De2 += e2*(chi_eff*(self.chi_p_b5SO(e2) + sqrt1me2*self.chi_sqrt_b5SO(e2)) + dchi*(self.dch_p_b5SO(e2) + sqrt1me2*self.dch_sqrt_b5SO(e2)))
 				k   += chi_eff*self.chi_p_k3SO(e2) + dchi*self.dch_p_k3SO(e2)
+				if self.horizon_absorption:
+					cab5 = dchi*self.dch_c5H + chi_eff*(self.chi_c5H + dchi2*self.chidch2_c5H + chi_eff2*self.chi3_c5H)
+					Dy  += self.pref_a5H(e2)*cab5
+					De2 += e2*self.pref_b5H(e2)*cab5
 			Dy  *= y
 			De2 *= y
 			k   *= y
@@ -1306,18 +1331,21 @@ def F_tLO_series_at_1(x):
 def F_tLO_series(x, x_thr=0.4):
 	
 	#distinguish case in which x is an array or not
-	if np.asarray(x).ndim==0:
+	if np.ndim(x)==0:
 		#if x small, use series expansion at 0, otherwise use series expansion at 1
-		if x<x_thr: return F_tLO_series_at_0(x)
+		if x<=x_thr: return F_tLO_series_at_0(x)
 		else: return F_tLO_series_at_1(x)
 		
 	else:
+		#make sure x is a numpy array of floats
+		x = np.asarray(x, dtype=float)
+
 		#if x small, use series expansion at 0, otherwise use series expansion at 1
 		F = np.zeros_like(x)
-		i_low = x<x_thr
+		i_low = x<=x_thr
 		i_high = np.logical_not(i_low)
-		if sum(i_low)>0:  F[i_low] = F_tLO_series_at_0(x[i_low])
-		if sum(i_high)>0: F[i_high] = F_tLO_series_at_1(x[i_high])
+		if np.any(i_low):  F[i_low] = F_tLO_series_at_0(x[i_low])
+		if np.any(i_high): F[i_high] = F_tLO_series_at_1(x[i_high])
 	
 		return F
 
@@ -1329,4 +1357,47 @@ def tLO_func(y, e2, m1, m2):
 
 	#return the LO time
 	return -(5/256)*(M/nu)*(y**-8)*((1-e2)**-0.5)*F_tLO_series(e2)
+
+#function to compute squared eccentricity as a function of frequency using the leading order (0PN) expressions. See e.g. Eq.(1.2) of 1605.00304.
+def compute_e2_of_f_0PN(f, e20, f0, atol=1e-14, maxiter_Newton=6):
+
+	#circular binaries (e0=0) stay circular; mask them so f0bar!=0 avoids 0-division
+	circular = np.equal(e20, 0.0)
+
+	#if all circular, there is nothing to solve
+	if np.all(circular): return np.zeros_like(e20)
+
+	e20_safe = np.where(circular, 0.5, e20)
+
+	#compute dimensionless frequency
+	fbar = (f/f0)*(e20_safe**(-9/19))*((1 - e20_safe)**(3/2))*((1 + (121/304)*e20_safe)**(-1305/2299))
+
+	#compute LO inverse for e2<<1
+	x_0 = fbar**(-19/9)
+	
+	#compute LO inverse for (1-e2)<<1
+	x_1 = ((425/304)**(870/2299))*(fbar**(2/3))
+
+	#compute approximate inverse using {2,2} and {1,3} Pades of inverse series of x_0 and x_1 respectively
+	e2 = np.where(fbar>1.57,
+	              x_0*(1 + x_0*(1346419979/308389608))/(1 + x_0*((4940161597/616779216) + x_0*(6051616442057/562502644992))),
+	              1 - x_1/(1 + x_1*(36/85 + x_1*(3018/36125 + x_1*185532/15353125))))
+	
+	#apply Newton rhapson
+	for iNewton in range(maxiter_Newton):
+		
+		#compute f(e2) and df(e2)
+		fi = (e2**(-9/19))*((1 - e2)**(3/2))*((1 + (121/304)*e2)**(-1305/2299)) - fbar
+		dfi = (-3/608)*(96 + e2*(292 + e2*37))*(e2**(-28/19))*((1 - e2)**(1/2))*((1 + (121/304)*e2)**(-3604/2299))
+		
+		#compute how much we have to shift e2
+		de2 = -(fi/dfi)
+		
+		#compute new value of e2
+		e2 = e2 + de2
+		
+		#if all values of e2 are below tolerance, break loop
+		if np.all(np.abs(de2)<atol): break
+
+	return np.where(circular, 0.0, e2)
 

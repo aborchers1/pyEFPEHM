@@ -14,6 +14,8 @@ You can also consider citing:
 
 - G. Morras, G. Pratten, and P. Schmidt, _Improved post-Newtonian waveform model for inspiralling precessing-eccentric compact binaries_, [Phys. Rev. D 111 (2025), 084052](https://doi.org/10.1103/PhysRevD.111.084052) | [INSPIRE](https://inspirehep.net/literature/2877111)
 
+- A. Alvaro-Díaz and G. Morras, _Horizon absorption in eccentric precessing binary black hole inspirals and its importance for gravitational wave data analysis_, [arXiv:2606.11705](https://arxiv.org/abs/2606.11705) | [INSPIRE](https://inspirehep.net/literature/3167570)
+
 ## Installation
 
 To install `pyEFPEHM`, navigate to the root directory of the repository (where `setup.py` is located) and run:

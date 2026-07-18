@@ -94,13 +94,13 @@ for key in plot_params:
 #make a plot of the eccentricity histogram
 plot_case = r'$\mathtt{pyEFPEHM}$'
 fig = plot_density(posteriors[plot_case], 'eccentricity', injection_params=injection_parameters[plot_case])
-fig.savefig(outdir+'/'+analysis_label+'_'+case+'_eccentricity.pdf')
+fig.savefig(outdir+'/'+analysis_label+'_'+run_cases[plot_case]+'_eccentricity.pdf')
 
 #make a plot of the eccentricity-chirpmass correlation
 posteriors[plot_case]['eccentric_chirp_mass'] = compute_McEcc(posteriors[plot_case]['chirp_mass'], posteriors[plot_case]['eccentricity'])
 injection_parameters[plot_case]['eccentric_chirp_mass'] = compute_McEcc(injection_parameters[plot_case]['chirp_mass'], injection_parameters[plot_case]['eccentricity'])
 fig = plot_corner(posteriors[plot_case], ['eccentric_chirp_mass', 'chirp_mass', 'eccentricity'], injection_params=injection_parameters[plot_case])
-fig.savefig(outdir+'/'+analysis_label+'_'+case+'_EFPE_McEcc.pdf')
+fig.savefig(outdir+'/'+analysis_label+'_'+run_cases[plot_case]+'_EFPE_McEcc.pdf')
 
 #Runtime
 print("\nRuntime: %s seconds" % (time.time() - start_runtime))

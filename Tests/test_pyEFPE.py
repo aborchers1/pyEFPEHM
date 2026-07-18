@@ -228,15 +228,18 @@ params_exact = params.copy()
 params_exact['Interpolate_Amplitudes'] = False
 wf_exact = pyEFPEHM.pyEFPE(params_exact)
 Apc_prec_exact, Apc_prec_interp = [], []
-for im, mode in enumerate(wf.mode_array):
 	
-	#compute exact and interpolated amplitudes (set p=1 to not conjugate amplitude)
-	Apc_prec_exact.append(wf_exact.compute_Apc_prec(times_plot, np.full(len(times_plot),im), np.full(len(times_plot), 1)))
-	Apc_prec_interp.append(     wf.compute_Apc_prec(times_plot, np.full(len(times_plot),im), np.full(len(times_plot), 1)))
+for im, mode in enumerate(wf.mode_array):
 
-	iP, label_P = 1, r'\times' #iP, label_P = 0, r'+'
-	plt.plot(x_plot, np.abs( Apc_prec_exact[-1][:,iP])**2, label=r'$|A_{%s, %s}|^2$'%(label_P, mode))
-	plt.plot(x_plot, np.abs(Apc_prec_interp[-1][:,iP])**2, 'k:')
+	if wf.Apc_prec_cspline[im] is not None:
+	
+		#compute exact and interpolated amplitudes (set p=1 to not conjugate amplitude)
+		Apc_prec_exact.append(wf_exact.compute_Apc_prec(times_plot, np.full(len(times_plot),im), np.full(len(times_plot), 1)))
+		Apc_prec_interp.append(     wf.compute_Apc_prec(times_plot, np.full(len(times_plot),im), np.full(len(times_plot), 1)))
+
+		iP, label_P = 1, r'\times' #iP, label_P = 0, r'+'
+		plt.plot(x_plot, np.abs( Apc_prec_exact[-1][:,iP])**2, label=r'$|A_{%s, %s}|^2$'%(label_P, mode))
+		plt.plot(x_plot, np.abs(Apc_prec_interp[-1][:,iP])**2, 'k:')
 
 plt.xlabel(r'$\overline{\psi}_p + \phi_{z,0} $ [s]')
 plt.legend()

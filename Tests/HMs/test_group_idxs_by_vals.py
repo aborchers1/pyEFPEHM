@@ -83,11 +83,9 @@ arr_test = np.random.randint(0, M, size=N)
 
 #Time the O(N) cython method
 start_time = time.time()
-c_grouped_idxs_all, c_slice_idxs = my_cgroup_idxs_by_vals(arr_test)
+c_grouped_idxs = my_cgroup_idxs_by_vals(arr_test)
 end_time = time.time()
 print("O(N) cython implementation: %s seconds"%(end_time - start_time))
-
-c_grouped_idxs = np.split(c_grouped_idxs_all, c_slice_idxs)
 
 
 #Time the O(N) python method
@@ -117,10 +115,14 @@ end_time = time.time()
 print("O(?) pandas implementation: %s seconds"%(end_time - start_time))
 
 
-#Make sure both approaches give the same result
-for g0, g1, g2, g3, (i4, g4) in zip(c_grouped_idxs, python_grouped_idxs, naive_grouped_idxs, np_grouped_idxs, pd_grouped_idxs.items()):
-	assert np.linalg.norm(g0 - g1) == 0
-	assert np.linalg.norm(g0 - g2) == 0
-	assert np.linalg.norm(g0 - g3) == 0
-	assert np.linalg.norm(g0 - g4) == 0
+#Make sure all methods give the same indices for every value
+n_groups = len(python_grouped_idxs)
+for val in range(n_groups):
+	g0 = c_grouped_idxs[val]
+	assert np.array_equal(g0, python_grouped_idxs[val])
+	assert np.array_equal(g0, naive_grouped_idxs[val])
+	assert np.array_equal(g0, np_grouped_idxs[val])
+	assert np.array_equal(g0, pd_grouped_idxs[val])
 
+#the numpy split can include a trailing empty group
+assert all(len(g)==0 for g in np_grouped_idxs[n_groups:])

@@ -1,3 +1,4 @@
+import os
 import numpy as np
 from pyEFPEHM.waveform.functions import *
 from tqdm import tqdm
@@ -128,6 +129,7 @@ ax.set_xlabel(r'$y$')
 ax.axhline(y=1, linewidth=1.75, color='k')
 ax.legend()
 fig.tight_layout()
+os.makedirs('Plots', exist_ok=True)
 plt.savefig('Plots/e2_decay_3PN_vs_0PN.pdf')
 
 fig, ax = plt.subplots(figsize=(8, 6))
