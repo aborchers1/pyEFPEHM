@@ -1,6 +1,6 @@
 import numpy as np
 import pytest
-
+import warnings
 import pyEFPEHM
 
 
@@ -418,3 +418,21 @@ def test_complete_mode_generation(model, extra_parameters):
         assert np.all(np.isfinite(mode["psi_SPA"]))
         assert np.all(np.isfinite(mode["t_SPA"]))
         assert np.all(np.isfinite(mode["T_SPA"]))
+
+def test_tdomain_warns_when_environment_is_selected():
+    """Test whether the code returns a warning when trying to call a waveform with environmental effects in time domain"""
+
+    # generate waveform with supersonic drag
+    waveform = make_waveform(environmental_model="supersonic",gas_density=1.0)
+
+    # call waveform in time domain
+    with pytest.warns(UserWarning, match="Environmental phase corrections"):
+        waveform.generate_tdomain_waveform(times=np.array([waveform.return_start_time()]))
+
+def test_tdomain_does_not_warn_for_vacuum():
+    """Verify that the vacuum waveform returns no warning related to environmental effects when called in time domain"""
+    waveform = make_waveform(environmental_model=None)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        waveform.generate_tdomain_waveform(times=np.array([waveform.return_start_time()]))
