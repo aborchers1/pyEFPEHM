@@ -609,6 +609,19 @@ class pyEFPE:
             )
             self._environmental_eccentricity_warning_issued = True
 
+    def _warn_tdomain_environment_ignored(self):
+        """Warn when a selected environmental model is ignored in the time domain."""
+        if self.params["environmental_model"] is not None:
+            warnings.warn(
+                "Environmental phase corrections are currently implemented "
+                "only for frequency-domain waveforms. "
+                "generate_tdomain_waveform() and generate_tdomain_modes() "
+                "return waveforms without the selected environmental effect. "
+                "Use generate_waveform() to include it.",
+                UserWarning,
+                stacklevel=3,
+            )
+    
     def _delta_psi2_roemer(self, f22_obs, e):
         """Roemer delay, Eq. (18) in Zwick et al (2026)"""
 
@@ -1369,6 +1382,8 @@ class pyEFPE:
         ValueError
             If neither `times` nor `delta_t` is provided.
         """
+
+        self._warn_tdomain_environment_ignored()
         
         #if no time-array is given, create it
         if times is None:
@@ -1478,6 +1493,8 @@ class pyEFPE:
         ValueError
             If neither `times` nor `delta_t` is provided.
         """
+
+        self._warn_tdomain_environment_ignored()
         
         #if no time-array is given, create it
         if times is None:
