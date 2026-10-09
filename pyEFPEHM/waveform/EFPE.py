@@ -608,19 +608,6 @@ class pyEFPE:
                 stacklevel=3,
             )
             self._environmental_eccentricity_warning_issued = True
-
-    def _warn_tdomain_environment_ignored(self):
-        """Warn when a selected environmental model is ignored in the time domain."""
-        if self.params["environmental_model"] is not None:
-            warnings.warn(
-                "Environmental phase corrections are currently implemented "
-                "only for frequency-domain waveforms. "
-                "generate_tdomain_waveform() and generate_tdomain_modes() "
-                "return waveforms without the selected environmental effect. "
-                "Use generate_waveform() to include it.",
-                UserWarning,
-                stacklevel=3,
-            )
     
     def _delta_psi2_roemer(self, f22_obs, e):
         """Roemer delay, Eq. (18) in Zwick et al (2026)"""
@@ -702,7 +689,10 @@ class pyEFPE:
 
     def _delta_psi2_environment(self, f22_obs, e):
         """
-        Approximate ell=2 Fourier correction, using delta psi ~= delta phi.
+        Approximate quadrupole Fourier-phase prescription.
+
+        Used directly by the FD waveform and through a first-order
+        phase mapping by the TD waveform.
         """
         model = self.params['environmental_model']
     
@@ -751,6 +741,61 @@ class pyEFPE:
         return result
 
 
+    def _environmental_tdomain_orbital_phase(self, times, derivative=0):
+        """
+        Approximate environmental orbital phase correction.
+
+        derivative=0 returns delta_Phi.
+        derivative=1 returns d(delta_Phi)/dt.
+        derivative=2 returns d^2(delta_Phi)/dt^2.
+
+        Times and derivatives use the detector-frame time coordinate.
+        """
+        times = np.asarray(times, dtype=float)
+
+        if derivative not in (0, 1, 2):
+            raise ValueError("derivative must be 0, 1, or 2")
+
+        # Recover vacuum waveform when no environmental model is selected
+        if self.params["environmental_model"] is None or times.size == 0:
+            return np.zeros_like(times)
+
+        # Rebuild the interpolation if environmental parameters change
+        keys = (
+            "environmental_model",
+            "environmental_phase_sign",
+            "environmental_redshift",
+            "tertiary_mass",
+            "tertiary_distance",
+            "gas_density",
+            "sound_speed",
+        )
+        cache_key = tuple(self.params[key] for key in keys)
+
+        if getattr(self, "_environmental_td_cache_key", None) != cache_key:
+
+            # Sample each orbital-evolution interval at 16 subdivisions
+            edges = np.asarray(self.sol.all_ts, dtype=float)
+            nodes = np.linspace(edges[:-1], edges[1:], num=17, axis=1)[:, :-1].ravel()
+            nodes = np.append(nodes, edges[-1])
+
+            # Obtain the vacuum orbital state at these times
+            y, e2 = self.sol(nodes, idxs=[0, 1])
+            e2 = np.clip(e2, 0.0, 1.0 - 1.0e-14)
+            e = np.sqrt(e2)
+
+            # Convert orbital frequency to the equivalent quadrupole frequency
+            f22 = 2.0 * forb_of_y(y, e2, self.MSA.M)
+
+            # Convert the existing Fourier prescription to orbital TD phase
+            delta_phi = (-0.5 * self.params["environmental_phase_sign"] * self._delta_psi2_environment(f22, e))
+
+            # Use one interpolation for the phase and both derivatives
+            self._environmental_td_phase_spline = CubicSpline(nodes, delta_phi, extrapolate=False)
+            self._environmental_td_cache_key = cache_key
+
+        return self._environmental_td_phase_spline(times, nu=derivative)
+    
 
     # ============================================================
     # Stationary-phase calculation
@@ -1356,6 +1401,9 @@ class pyEFPE:
 
         The waveform is reconstructed by summing contributions from all Fourier modes, evaluated directly in the time domain. (see Eq.(18) of 2502.03929)
 
+        When environmental_model is enabled, an approximate first-order environmental phase correction is included. Orbital evolution,
+amplitudes, and precession are evaluated on the vacuum solution.
+
         Parameters
         ----------
         times : array-like, optional
@@ -1382,8 +1430,6 @@ class pyEFPE:
         ValueError
             If neither `times` nor `delta_t` is provided.
         """
-
-        self._warn_tdomain_environment_ignored()
         
         #if no time-array is given, create it
         if times is None:
@@ -1409,16 +1455,23 @@ class pyEFPE:
 
         #find segment of Runge-Kutta each interp_idx is in
         idxs_t_interp = self.mode_interp_idx[interp_idxs]
-        
-        #compute the phases
-        xs = (ts_compute - self.sol.ts[idxs_t_interp])/self.sol.hs[idxs_t_interp]
-        del idxs_t_interp, ts_compute
-        phi_t = xs*self.mode_phases_Qs[0][interp_idxs,-1]
-        for iQ in reversed(range(self.mode_phases_Qs[0].shape[1]-1)):
-            phi_t = xs*(self.mode_phases_Qs[0][interp_idxs,iQ] + phi_t)
-        phi_t+= self.mode_phases_y0[0][interp_idxs]
-        del interp_idxs, xs
 
+        # compute the vacuum phase of each contribution
+        xs = ((ts_compute - self.sol.ts[idxs_t_interp]) / self.sol.hs[idxs_t_interp])
+        del idxs_t_interp
+        phi_t = xs * self.mode_phases_Qs[0][interp_idxs, -1]
+        for iQ in reversed(range(self.mode_phases_Qs[0].shape[1] - 1)):
+            phi_t = xs * (self.mode_phases_Qs[0][interp_idxs, iQ] + phi_t)
+        phi_t += self.mode_phases_y0[0][interp_idxs]
+
+        # add the environmental correction to the phase
+        if self.params["environmental_model"] is not None:
+            ell = np.abs(self.necessary_ps[interp_idxs])
+            phi_t += (ell * self._environmental_tdomain_orbital_phase(ts_compute))
+            
+        # delete temporary arrays after evaluating the correction
+        del interp_idxs, xs, ts_compute
+        
         #compute the waveform h(t) = Re(A(t)*e^{-i\phi(t)})
         waveform_ts = Amps.real*(np.cos(phi_t)[:,None]) + Amps.imag*(np.sin(phi_t)[:,None])
         del phi_t, Amps
@@ -1448,6 +1501,9 @@ class pyEFPE:
         Note that in the code, `n` is called `p`.
 
         For each mode (l,m,n) mode, quantities are evaluated at a given subset of input times. The modes included at each time are controlled by the requested `Amplitude_tol` (see Sec.IID of 2502.03929).
+
+        When environmental_model is enabled, an approximate first-order environmental phase correction is included. Orbital evolution,
+amplitudes, and precession are evaluated on the vacuum solution.
 
         Parameters
         ----------
@@ -1493,8 +1549,6 @@ class pyEFPE:
         ValueError
             If neither `times` nor `delta_t` is provided.
         """
-
-        self._warn_tdomain_environment_ignored()
         
         #if no time-array is given, create it
         if times is None:
@@ -1520,10 +1574,18 @@ class pyEFPE:
         #compute \lambda and \delta\lambda at the valid times
         valid_l, valid_dl = self.sol(valid_times, derivative=0, idxs=[2,3])
 
-        #if required, compute also the first and second derivatives of the phase
+        # environmental orbital phase at the valid input times
+        valid_delta_phi = self._environmental_tdomain_orbital_phase(valid_times)
+        
+        # if required, compute also the first and second derivatives of the phase
         if return_waveform_pieces:
-            valid_DlDt  , valid_DdlDt   = self.sol(valid_times, derivative=1, idxs=[2,3])
-            valid_DDlDt2, valid_DDdlDt2 = self.sol(valid_times, derivative=2, idxs=[2,3])
+            # vacuum phase derivatives
+            valid_DlDt, valid_DdlDt = self.sol(valid_times, derivative=1, idxs=[2, 3])
+            valid_DDlDt2, valid_DDdlDt2 = self.sol(valid_times, derivative=2, idxs=[2, 3])
+
+            # environmental phase derivatives
+            valid_delta_omega = self._environmental_tdomain_orbital_phase(valid_times, derivative=1)
+            valid_delta_DomegaDt = (self._environmental_tdomain_orbital_phase(valid_times, derivative=2))
 
         #group by multipole_idxs
         multipole_idxs = self.necessary_multipole_idxs[interp_idxs]
@@ -1589,6 +1651,9 @@ class pyEFPE:
                 else:
                     mode_label = (l,  m,  p)
 
+                #the phase has already been normalized for negative p
+                phi_t += abs(p) * valid_delta_phi[t_idxs_ip]
+                
                 #compute Fourier mode amplitudes for this mode
                 Nlm_p = self.compute_Nlm_p(valid_times[t_idxs_ip], interp_idxs_im[p_idxs])
                 
@@ -1607,7 +1672,13 @@ class pyEFPE:
                     omega    = p*valid_DlDt[t_idxs_ip]   + (m - p)*valid_DdlDt[t_idxs_ip]
                     DomegaDt = p*valid_DDlDt2[t_idxs_ip] + (m - p)*valid_DDdlDt2[t_idxs_ip]
                     #handle when p is negative, doing [p,m]->[-p,-m]
-                    if p<0: omega, DomegaDt = -omega, -DomegaDt
+                    if p<0: 
+                        omega, DomegaDt = -omega, -DomegaDt
+
+                    # correct the derivatives of the normalized mode phase
+                    omega += abs(p) * valid_delta_omega[t_idxs_ip]
+                    DomegaDt += (abs(p) * valid_delta_DomegaDt[t_idxs_ip])
+                        
                     #add stuff to dictionary that will be returned
                     result['modes'][mode_label].update({'Apc_prec': Apc_prec_ip, 'Nlm_p': Nlm_p, 'phase': phi_t, 'omega': omega, 'DomegaDt': DomegaDt})
 

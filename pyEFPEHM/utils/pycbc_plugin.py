@@ -1,5 +1,5 @@
 import numpy as np
-from pycbc.types import FrequencySeries
+from pycbc.types import FrequencySeries, TimeSeries
 from pyEFPEHM.waveform.EFPE import pyEFPE
 
 
@@ -50,6 +50,10 @@ def _pyefpe_parameters_from_pycbc(params):
         "sound_speed": params.get("sound_speed", 0.0),
     }
 
+    # forward an optional duration limit to pyEFPEHM
+    if params.get("max_duration") is not None:
+        pyefpe_params["max_duration"] = params["max_duration"]
+    
     # get values from pyCBC's mode-selection array
     mode_array = params.get("mode_array")
 
@@ -127,3 +131,51 @@ def pyefpe_fd(**params):
     hc[active] = hc_active
 
     return (FrequencySeries(hp, delta_f=delta_f), FrequencySeries(hc, delta_f=delta_f))
+
+
+def pyefpe_td(**params):
+    """Generate summed TD polarizations for pyCBC"""
+
+    # read and validate the requested time spacing
+    delta_t = float(params["delta_t"])
+
+    if not np.isfinite(delta_t) or delta_t <= 0.0:
+        raise ValueError("delta_t must be finite and positive.")
+
+    # reuse the parameter conversion used by the FD adapter
+    pyefpe_params = _pyefpe_parameters_from_pycbc(params)
+
+    # validate the requested frequency interval
+    f_lower = float(pyefpe_params["f22_start"])
+    f_final = float(pyefpe_params["f22_end"])
+
+    if not np.isfinite(f_lower) or f_lower <= 0.0:
+        raise ValueError("f_lower must be finite and positive.")
+
+    if not np.isfinite(f_final) or f_final <= f_lower:
+        raise ValueError("f_final must be finite and greater than f_lower.")
+
+    # construct the generator containing your environmental TD corrections
+    waveform = pyEFPE(pyefpe_params)
+
+    # evaluate the time-domain polarizations on a uniform time grid
+    polarizations, times = waveform.generate_tdomain_waveform(delta_t=delta_t, return_time_array=True)
+
+    # ensure that a nonempty waveform was produced
+    if len(times) == 0:
+        raise ValueError("No time samples were generated.")
+
+    # preserve pyEFPEHM's existing time origin
+    epoch = float(times[0])
+
+    # wrap the plus polarization in a PyCBC TimeSeries
+    hp = TimeSeries(np.asarray(polarizations[0], dtype=np.float64), delta_t=delta_t, epoch=epoch)
+
+    # wrap the cross polarization using the same sampling and epoch
+    hc = TimeSeries(np.asarray(polarizations[1], dtype=np.float64), delta_t=delta_t, epoch=epoch)
+
+    return hp, hc
+
+
+# tell PyCBC which arguments must be provided
+pyefpe_td.required = ["mass1", "mass2", "f_lower", "delta_t", "approximant"]
