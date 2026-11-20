@@ -897,25 +897,20 @@ class pyEFPE:
 		#take into account that \psi_s = 2 \pi f t_s - \phi(t_s) - pi/4 (Vacuum SPA Fourier phase)
 		psi_SPA = ws*t_SPA - psi_SPA - 0.25*np.pi
 
-		# add approximate environmental Fourier-phase correction.
-		if self.params['environmental_model'] is not None:
-        
-			# detector frequency for every harmonic contribution.
-			f_detector = ws / (2.0 * np.pi)
-        
-			# binary eccentricity at the harmonic's stationary time.
-			# idxs=1 returns the e^2 evolution variable.
-			e2_SPA = np.asarray(self.sol(t_SPA, idxs=1))
-			e_SPA = np.sqrt(np.clip(e2_SPA, 0.0, 1.0 - 1.0e-14))
-        
-			# in Zwick et al (2026) ell is pyEFPEHM's abs(p), not its l.
+		# add the environmental Fourier-phase correction
+		if self.params["environmental_model"] is not None:
+			y_SPA, e2_SPA = self.sol(t_SPA, idxs=[0, 1])
+			e2_SPA = np.clip(e2_SPA, 0.0, 1.0 - 1.0e-14)
+			e_SPA = np.sqrt(e2_SPA)
+			f22_SPA = 2.0 * forb_of_y(y_SPA, e2_SPA, self.MSA.M)
 			ell = np.abs(self.necessary_ps[interp_idxs])
-        
-			delta_psi_environment = (self._environmental_harmonic_phase(f_detector, e_SPA, ell,))
-        
-			psi_SPA += (self.params['environmental_phase_sign'] * delta_psi_environment)
-        
-		#return all the SPA related things that will be needed in the future
+			delta_psi_environment = (
+				0.5 * ell * self._delta_psi2_environment(f22_SPA, e_SPA)
+			)
+			psi_SPA += (
+				self.params["environmental_phase_sign"] * delta_psi_environment
+			)
+
 		return f_idxs, interp_idxs, t_SPA, psi_SPA, T_SPA
 
 	#function to compute Euler angles
