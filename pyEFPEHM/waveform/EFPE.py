@@ -190,7 +190,14 @@ class pyEFPE:
 		environmental_phase_sign : float
 			Overall sign multiplying the environmental correction added to the internal Fourier phase. Must be either +1.0 or -1.0. This
 			parameter accounts for the chosen Fourier-transform and dephasing sign conventions. - Default: 1.0
-            
+
+        environmental_fd_method : string
+            Method used to include environmental effects in the frequency-domain waveform:
+            * 'phase_only' adds the environmental Fourier-phase correction at the vacuum stationary times, retaining the vacuum SPA curvature.
+            * 'stationary_phase' computes the stationary times, phase and curvature from the environment-corrected time-domain carrier. 
+            This gives an FD approximation consistent with that TD carrier and requires a positive, increasing carrier frequency.
+            Both methods use the existing approximate environmental phase prescription. - Default: 'stationary_phase'
+        
 		tertiary_mass : float
 			Source-frame mass of the tertiary object entering the Roemer-delay correction, in solar masses. Used only when
 			environmental_model='roemer_delay' and required to be positive in that case. - Default: 0.0
@@ -210,51 +217,52 @@ class pyEFPE:
 		"""
 		#dictionary with default params
 		params = {'eccentricity': 0,
-		          'spin1x': 0,
-		          'spin1y': 0,
-		          'spin1z': 0,
-		          'spin2x': 0,
-		          'spin2y': 0,
-		          'spin2z': 0,
-		          'distance': 100,
-		          'inclination': 0,
-		          'f22_start': 20,
-		          'f22_ref': None,
-		          'f22_end': None,
-		          'max_duration': None,
-		          'phase': 0,
-		          'mean_anomaly': 0,
-		          'mode_array': [[2,0],[2,1],[2,2],[3,0],[3,1],[3,2],[3,3],[4,0],[4,2],[4,4]],
-		          'q1': 1, 'q2': 1, 'o1': 1, 'o2': 1,
-		          'Lambda2_1': 0, 'Lambda2_2': 0, 'Lambda3_1': 0, 'Lambda3_2': 0, 'Sigma2_1': 0, 'Sigma2_2': 0,
-		          'Lambda23_1': 0, 'Lambda23_2': 0, 'Lambda32_1': 0, 'Lambda32_2': 0, 'Sigma23_1': 0, 'Sigma23_2': 0, 'Sigma32_1': 0, 'Sigma32_2': 0,
-		          'pn_phase_order': 9,
-		          'pn_spin_order': 8,
-		          'pn_amplitude_order': 2,
-		          'pn_tidal_order': 0,
-		          'horizon_absorption': True,
-		          'Amplitude_tol': 1e-4,
-		          'Amplitude_pmax': 100,
-		          'harmonic_array': None,
-		          'DJ2_tol': 1e-10,
-		          'RR_sol_rtol': [1e-10, 1e-10, 1e-12, 1e-12, 1e-10, 1e-12, 1e-12, 1e-12],
-		          'RR_sol_atol': [1e-12, 1e-12,  1e-8,  1e-8, 1e-12,  1e-8,  1e-6,  1e-6],
-		          'NecessaryModes_UpdatePeriod': 4,
-		          'Series_Reversion_Order': 5,
-		          'Interpolate_Amplitudes': True,
-		          'Interp_points_per_prec_cycle': 40,
-		          'Extra_interp_points_Nlm_p': 0,
-		          'SPA_Frequency_rtol': 1e-12,
-		          'SUA_kmax': 1,
-		          'Compute_hlm_Modes': False,
+				  'spin1x': 0,
+				  'spin1y': 0,
+				  'spin1z': 0,
+				  'spin2x': 0,
+				  'spin2y': 0,
+				  'spin2z': 0,
+				  'distance': 100,
+				  'inclination': 0,
+				  'f22_start': 20,
+				  'f22_ref': None,
+				  'f22_end': None,
+				  'max_duration': None,
+				  'phase': 0,
+				  'mean_anomaly': 0,
+				  'mode_array': [[2,0],[2,1],[2,2],[3,0],[3,1],[3,2],[3,3],[4,0],[4,2],[4,4]],
+				  'q1': 1, 'q2': 1, 'o1': 1, 'o2': 1,
+				  'Lambda2_1': 0, 'Lambda2_2': 0, 'Lambda3_1': 0, 'Lambda3_2': 0, 'Sigma2_1': 0, 'Sigma2_2': 0,
+				  'Lambda23_1': 0, 'Lambda23_2': 0, 'Lambda32_1': 0, 'Lambda32_2': 0, 'Sigma23_1': 0, 'Sigma23_2': 0, 'Sigma32_1': 0, 'Sigma32_2': 0,
+				  'pn_phase_order': 9,
+				  'pn_spin_order': 8,
+				  'pn_amplitude_order': 2,
+				  'pn_tidal_order': 0,
+				  'horizon_absorption': True,
+				  'Amplitude_tol': 1e-4,
+				  'Amplitude_pmax': 100,
+				  'harmonic_array': None,
+				  'DJ2_tol': 1e-10,
+				  'RR_sol_rtol': [1e-10, 1e-10, 1e-12, 1e-12, 1e-10, 1e-12, 1e-12, 1e-12],
+				  'RR_sol_atol': [1e-12, 1e-12,  1e-8,  1e-8, 1e-12,  1e-8,  1e-6,  1e-6],
+				  'NecessaryModes_UpdatePeriod': 4,
+				  'Series_Reversion_Order': 5,
+				  'Interpolate_Amplitudes': True,
+				  'Interp_points_per_prec_cycle': 40,
+				  'Extra_interp_points_Nlm_p': 0,
+				  'SPA_Frequency_rtol': 1e-12,
+				  'SUA_kmax': 1,
+				  'Compute_hlm_Modes': False,
 				  'environmental_model': None,
 				  'environmental_redshift': 0.0,
 				  'environmental_phase_sign': 1.0,
+				  'environmental_fd_method': 'stationary_phase',
 				  'tertiary_mass': 0.0,       
 				  'tertiary_distance': 0.0,   
 				  'gas_density': 0.0,         
 				  'sound_speed': 0.0,
-		         }
+				 }
 		
 		#validate the input parameters and merge them with the defaults (maps deprecated *_start keys, warns on typos / out-of-range values, raises on invalid masses or eccentricity)
 		params = self._validate_parameters(parameters, params)
@@ -277,7 +285,7 @@ class pyEFPE:
 		self.mu_env_SI = (self.m1_env_SI * self.m2_env_SI / self.M_env_SI)
 		self.Mchirp_env_SI = ((self.m1_env_SI * self.m2_env_SI)**(3.0 / 5.0) / self.M_env_SI**(1.0 / 5.0))
 		self._environmental_eccentricity_warning_issued = False
-        
+		
 		self.e_ref = params['eccentricity']
 		#Extract the dimensionless component spins (S_i/mu_i^2 = s_i/mu_i)
 		self.spin0_1 = np.array([params['spin1x'], params['spin1y'], params['spin1z']])
@@ -360,7 +368,7 @@ class pyEFPE:
 		
 		#compute the solution of v(t)=[y, e2, l, dl, DJ2, bpsip, phiz0, zeta0] from Eqs.(101-109) of 2106.10291
 		self.sol      = solve_ivp_RR_eqs_t(self.v_ini, self.PN_derivatives, self.MSA, self.f0_orb, self.fref_orb_eff, self.yf, self.e2_0_est, self.ref_clamped,
-		                              rtol=params['RR_sol_rtol'], atol=params['RR_sol_atol'], max_duration=params['max_duration'])
+									  rtol=params['RR_sol_rtol'], atol=params['RR_sol_atol'], max_duration=params['max_duration'])
 		
 		#compute the SUA constants a_{k,k_max} by solving a system similar to Eq.(127-128) of arXiv:2106.10291
 		self.ak_SUA = compute_ak_SUA(params['SUA_kmax'])
@@ -541,30 +549,33 @@ class pyEFPE:
 		environmental_models = {None, 'roemer', 'bhl', 'supersonic'}
 		if params['environmental_model'] not in environmental_models:
 			raise ValueError("environmental_model must be one of: None, 'roemer', 'bhl', or 'supersonic'")
-            
+			
 		if params['environmental_redshift'] < 0:
 			raise ValueError("environmental_redshift must be non-negative")
-        
+
+		if params['environmental_fd_method'] not in ('phase_only', 'stationary_phase'):
+			raise ValueError("environmental_fd_method must be 'phase_only' or 'stationary_phase'")
+		
 		if params['environmental_phase_sign'] not in (-1.0, 1.0):
 			raise ValueError("environmental_phase_sign must be +1 or -1")
-        
+		
 		if params['gas_density'] < 0:
 			raise ValueError("gas_density must be non-negative")
-        
+		
 		if params['environmental_model'] == 'bhl':
 			if params['sound_speed'] <= 0:
 				raise ValueError("sound_speed must be positive for BHL drag")
-        
+		
 		if params['environmental_model'] == 'supersonic':
 			if params['gas_density'] <= 0:
 				raise ValueError("gas_density must be positive for supersonic drag")
-        
+		
 		if params['environmental_model'] == 'roemer':
 			if params['tertiary_mass'] <= 0:
 				raise ValueError("tertiary_mass must be positive for Roemer delay")
 			if params['tertiary_distance'] <= 0:
 				raise ValueError("tertiary_distance must be positive for Roemer delay")
-        
+		
 		#return the merged parameter dictionary
 		return params
 
@@ -577,30 +588,30 @@ class pyEFPE:
 		"""Peters GW-flux enhancement F(e), Eq. (19) in Zwick et al (2025)."""
 		e = np.asarray(e, dtype=float)
 		e2 = e * e
-    
+	
 		return (1.0 + (73.0 / 24.0) * e2 + (37.0 / 96.0) * e2**2) / (1.0 - e2)**3.5
-    
-    
+	
+	
 	@staticmethod
 	def _inspiral_ratio_R(e):
 		"""R(e) approximation, Eq. (20) in Zwick et al (2025)."""
 		e = np.asarray(e, dtype=float)
 		return 8.0**(1.0 - np.sqrt(1.0 - e))
-    
-    
+	
+	
 	@staticmethod
 	def _bhl_eccentricity_factor(e):
 		"""BHL series through e^6, Eq. (55) in Zwick et al (2025)."""
 		e2 = np.asarray(e, dtype=float)**2
-    
+	
 		return (1.0 + (3.0 / 4.0) * e2 + (33.0 / 64.0) * e2**2 + (107.0 / 256.0) * e2**3)
-    
-    
+	
+	
 	@staticmethod
 	def _supersonic_eccentricity_factor(e):
 		"""Supersonic series through e^6, Eq. (59) in Zwick et al (2025)."""
 		e2 = np.asarray(e, dtype=float)**2
-    
+	
 		return (1.0 - (1.0 / 4.0) * e2 - (7.0 / 64.0) * e2**2 - (17.0 / 256.0) * e2**3)
 
 	def _warn_truncated_environmental_eccentricity(self, e):
@@ -617,22 +628,22 @@ class pyEFPE:
 			)
 			self._environmental_eccentricity_warning_issued = True
 
-    
+	
 	def _delta_psi2_roemer(self, f22_obs, e):
 		"""Roemer delay, Eq. (18) in Zwick et al (2026)"""
 
 		z = self.params['environmental_redshift']
-    
+	
 		f22_source = (1.0 + z) * np.asarray(f22_obs)
-    
+	
 		m3_SI = (self.params['tertiary_mass'] * M_sun_SI)
 		separation_SI = self.params['tertiary_distance']
-    
+	
 		F_e = self._peters_enhancement(e)
 		R_e = self._inspiral_ratio_R(e)
-    
+	
 		coefficient = (5.0 / (256.0 * np.pi**(13.0 / 6.0)))**2
-    
+	
 		return (
 			coefficient
 			* c_SI**9
@@ -650,16 +661,16 @@ class pyEFPE:
 		rho = self.params['gas_density']
 		cs = self.params['sound_speed']
 		z = self.params['environmental_redshift']
-    
+	
 		# Source-frame frequency
 		f22_source = (1.0 + z) * np.asarray(f22_obs)
-    
+	
 		F_e = self._peters_enhancement(e)
 		R_e = self._inspiral_ratio_R(e)
 		F_bhl = self._bhl_eccentricity_factor(e)
-    
+	
 		coefficient = (75.0 / (16384.0 * np.pi**(11.0 / 3.0)))
-    
+	
 		return (coefficient 
 			* c_SI**10 
 			* self.Mchirp_env_SI**(5.0 / 6.0) 
@@ -677,15 +688,15 @@ class pyEFPE:
 
 		rho = self.params['gas_density']
 		z = self.params['environmental_redshift']
-    
+	
 		f22_source = (1.0 + z) * np.asarray(f22_obs)
-    
+	
 		F_e = self._peters_enhancement(e)
 		R_e = self._inspiral_ratio_R(e)
 		F_sup = self._supersonic_eccentricity_factor(e)
-    
+	
 		coefficient = (75.0 / (16384.0 * np.pi**(13.0 / 3.0)))
-    
+	
 		return (
 			coefficient
 			* c_SI**10
@@ -701,19 +712,19 @@ class pyEFPE:
 		Approximate ell=2 Fourier correction, using delta psi ~= delta phi.
 		"""
 		model = self.params['environmental_model']
-    
+	
 		if model is None:
 			return np.zeros_like(np.asarray(f22_obs), dtype=float)
-    
+	
 		if model == 'roemer':
 			return self._delta_psi2_roemer(f22_obs, e)
-    
+	
 		if model == 'bhl':
 			return self._delta_psi2_bhl(f22_obs, e)
-    
+	
 		if model == 'supersonic':
 			return self._delta_psi2_supersonic(f22_obs, e)
-    
+	
 		# Parameter validation should make this unreachable.
 		raise RuntimeError("Unsupported environmental model: %s" % model)
 
@@ -728,87 +739,239 @@ class pyEFPE:
 		f_detector = np.asarray(f_detector, dtype=float)
 		e = np.asarray(e, dtype=float)
 		ell = np.asarray(ell, dtype=int)
-    
+	
 		result = np.zeros_like(f_detector)
-    
+	
 		# Zwick et al (2026) only defines the mapping for ell >= 1.
 		valid = ell > 0
-    
+	
 		if not np.any(valid):
 			return result
-    
+	
 		# Equivalent ell=2 frequency at the same orbital epoch.
 		f22_equivalent = (2.0 * f_detector[valid] / ell[valid])
-    
+	
 		delta_psi2 = self._delta_psi2_environment(f22_equivalent, e[valid])
-    
+	
 		result[valid] = (0.5 * ell[valid] * delta_psi2)
-    
+	
 		return result
 
 
 	def _environmental_tdomain_orbital_phase(self, times, derivative=0):
-		"""
-		Approximate environmental orbital phase correction.
-
-		derivative=0 returns delta_Phi.
-		derivative=1 returns d(delta_Phi)/dt.
-		derivative=2 returns d^2(delta_Phi)/dt^2.
-
-		Times and derivatives use the detector-frame time coordinate.
-		"""
+		"""Environmental orbital phase and analytic time derivatives."""
+		
 		times = np.asarray(times, dtype=float)
 
 		if derivative not in (0, 1, 2):
 			raise ValueError("derivative must be 0, 1, or 2")
 
-		# Recover vacuum waveform when no environmental model is selected
 		if self.params["environmental_model"] is None or times.size == 0:
 			return np.zeros_like(times)
 
-		# Rebuild the interpolation if environmental parameters change
-		keys = (
-			"environmental_model",
-			"environmental_phase_sign",
-			"environmental_redshift",
-			"tertiary_mass",
-			"tertiary_distance",
-			"gas_density",
-			"sound_speed",
-		)
-		cache_key = tuple(self.params[key] for key in keys)
+		flat_times = times.reshape(-1)
+		valid = ((flat_times >= self.sol.all_ts[0]) & (flat_times <= self.sol.all_ts[-1]))
 
-		if getattr(self, "_environmental_td_cache_key", None) != cache_key:
+		result = np.full(flat_times.shape, np.nan)
+		t = flat_times[valid]
 
-			# Sample each orbital-evolution interval at 16 subdivisions
-			edges = np.asarray(self.sol.all_ts, dtype=float)
-			nodes = np.linspace(edges[:-1], edges[1:], num=17, axis=1)[:, :-1].ravel()
-			nodes = np.append(nodes, edges[-1])
+		if t.size == 0:
+			return result.reshape(times.shape)
 
-			# Obtain the vacuum orbital state at these times
-			y, e2 = self.sol(nodes, idxs=[0, 1])
-			e2 = np.clip(e2, 0.0, 1.0 - 1.0e-14)
-			e = np.sqrt(e2)
+		# Vacuum orbital state: y and x=e^2.
+		y, x = self.sol(t, idxs=[0, 1])
+		x = np.clip(x, 0.0, 1.0 - 1e-14)
+		e = np.sqrt(x)
 
-			# Convert orbital frequency to the equivalent quadrupole frequency
-			f22 = 2.0 * forb_of_y(y, e2, self.MSA.M)
+		f22 = 2.0 * forb_of_y(y, x, self.MSA.M)
 
-			# Convert the existing Fourier prescription to orbital TD phase
-			delta_phi = (-0.5 * self.params["environmental_phase_sign"] * self._delta_psi2_environment(f22, e))
+		phase = (-0.5 * self.params["environmental_phase_sign"] * self._delta_psi2_environment(f22, e))
 
-			# Use one interpolation for the phase and both derivatives
-			self._environmental_td_phase_spline = CubicSpline(nodes, delta_phi, extrapolate=False)
-			self._environmental_td_cache_key = cache_key
+		if derivative == 0:
+			result[valid] = phase
+			return result.reshape(times.shape)
 
-		return self._environmental_td_phase_spline(times, nu=derivative)
+		# First and second derivatives of the orbital state.
+		dy, dx = self.sol(t, derivative=1, idxs=[0, 1])
+		ddy, ddx = self.sol(t, derivative=2, idxs=[0, 1])
 
-        
+		# Circular trajectories remain circular.
+		dx_over_x = np.divide(dx, x, out=np.zeros_like(x), where=x > 0)
+		ddx_over_x = np.divide(ddx, x, out=np.zeros_like(x), where=x > 0)
+
+		de = 0.5 * e * dx_over_x
+		dde = 0.5 * e * (ddx_over_x - 0.5 * dx_over_x**2)
+
+		# Derivatives of log(f22).
+		log_f_d1 = 3.0 * dy / y - 1.5 * dx / (1.0 - x)
+		log_f_d2 = (3.0 * (ddy / y - (dy / y)**2) - 1.5 * (ddx / (1.0 - x) + (dx / (1.0 - x))**2))
+
+		# Derivatives of log(R), with R=8**(1-sqrt(1-e)).
+		log_R_d1 = (0.5 * np.log(8.0) * de / np.sqrt(1.0 - e))
+		log_R_d2 = 0.5 * np.log(8.0) * (dde / np.sqrt(1.0 - e) + 0.5 * de**2 / (1.0 - e)**1.5)
+
+		# Peters enhancement: F=P(x)/(1-x)**(7/2).
+		P = 1.0 + (73.0 / 24.0) * x + (37.0 / 96.0) * x*x
+		P1 = (73.0 / 24.0) + (37.0 / 48.0) * x
+
+		log_F_x = P1 / P + 3.5 / (1.0 - x)
+		log_F_xx = ((37.0 / 48.0) / P - (P1 / P)**2 + 3.5 / (1.0 - x)**2)
+
+		log_F_d1 = log_F_x * dx
+		log_F_d2 = log_F_x * ddx + log_F_xx * dx*dx
+
+		model = self.params["environmental_model"]
+		power = {"roemer": -13.0 / 3.0,
+				 "bhl": -14.0 / 3.0,
+				 "supersonic": -16.0 / 3.0,
+				}[model]
+
+		log_d1 = power * log_f_d1 + 2.0 * (log_R_d1 - log_F_d1)
+		log_d2 = power * log_f_d2 + 2.0 * (log_R_d2 - log_F_d2)
+
+		# Additional eccentricity factors for the gas models.
+		if model != "roemer":
+			if model == "bhl":
+				coeffs = [1.0, 3.0 / 4.0, 33.0 / 64.0, 107.0 / 256.0,]
+			else:
+				coeffs = [1.0, -1.0 / 4.0, -7.0 / 64.0, -17.0 / 256.0,]
+
+			Q = np.polynomial.polynomial.polyval(x, coeffs)
+			Q1 = np.polynomial.polynomial.polyval(x, np.polynomial.polynomial.polyder(coeffs))
+			Q2 = np.polynomial.polynomial.polyval(x, np.polynomial.polynomial.polyder(coeffs, 2))
+
+			log_d1 += (Q1 / Q) * dx
+			log_d2 += ((Q1 / Q) * ddx + (Q2 / Q - (Q1 / Q)**2) * dx*dx)
+
+		if derivative == 1:
+			result[valid] = phase * log_d1
+		else:
+			result[valid] = phase * (log_d2 + log_d1**2)
+
+		return result.reshape(times.shape)
+
+		
 	# ============================================================
 	# Stationary-phase calculation
 	# ============================================================
 
+	def _corrected_mode_phase(self, times, interp_idxs, derivative=0):
+		"""Corrected carrier phase, frequency, or curvature."""
+		rk_idxs = self.mode_interp_idx[interp_idxs]
+
+		x = ((times - self.sol.ts[rk_idxs]) / self.sol.hs[rk_idxs])
+
+		Q = self.mode_phases_Qs[derivative][interp_idxs]
+		value = np.zeros_like(x)
+
+		for column in range(Q.shape[1] - 1, -1, -1):
+			value = x * (Q[:, column] + value)
+
+		value += self.mode_phases_y0[derivative][interp_idxs]
+		value += (np.abs(self.necessary_ps[interp_idxs]) * self._environmental_tdomain_orbital_phase(times, derivative))
+
+		return value
+
+
+	def _stationary_times_environment(self, freqs, rtol):
+		"""Compute SPA quantities from the corrected TD carrier."""
+		if not np.isfinite(rtol) or rtol <= 0:
+			raise ValueError("SPA frequency tolerance must be positive and finite")
+
+		freqs = np.asarray(freqs, dtype=float)
+
+		if (freqs.ndim != 1 or not np.all(np.isfinite(freqs)) or np.any(np.diff(freqs) < 0)):
+			raise ValueError("Frequencies must be a finite, sorted one-dimensional array")
+
+		intervals = np.arange(len(self.mode_interp_idx))
+		left = self.sol.all_ts[self.mode_interp_idx]
+		right = self.sol.all_ts[self.mode_interp_idx + 1]
+
+		# Check the corrected carrier throughout each RK interval.
+		probe_times = np.linspace(left, right, 17, axis=1).ravel()
+		probe_idxs = np.repeat(intervals, 17)
+
+		omega = self._corrected_mode_phase(probe_times, probe_idxs, 1).reshape(-1, 17)
+
+		curvature = self._corrected_mode_phase(probe_times, probe_idxs, 2)
+
+		if (not np.all(np.isfinite(omega))
+			or not np.all(np.isfinite(curvature))
+			or np.any(omega <= 0)
+			or np.any(curvature <= 0)):
+			raise ValueError("Corrected environmental carrier is not positive "
+							 "and increasing; the stationary_phase FD method "
+							 "does not support turning points")
+
+		ws_all = 2 * np.pi * freqs
+		f_idxs, interp_idxs = sorted_vals_in_intervals(ws_all, omega[:, 0], omega[:, -1])
+
+		if len(f_idxs) == 0:
+			return (
+				np.array([], dtype=int),
+				np.array([], dtype=int),
+				np.array([]),
+				np.array([]),
+				np.array([]),
+			)
+
+		# Count roots at shared RK endpoints only once per harmonic.
+		labels = np.column_stack((
+			f_idxs,
+			self.necessary_multipole_idxs[interp_idxs],
+			self.necessary_ps[interp_idxs],
+		))
+
+		_, unique = np.unique(labels, axis=0, return_index=True)
+		unique = np.sort(unique)
+
+		f_idxs = f_idxs[unique]
+		interp_idxs = interp_idxs[unique]
+		ws = ws_all[f_idxs]
+
+		a = left[interp_idxs].copy()
+		b = right[interp_idxs].copy()
+
+		x = ((ws - omega[interp_idxs, 0]) / (omega[interp_idxs, -1] - omega[interp_idxs, 0]))
+		t = a + x * (b - a)
+
+		# Newton iterations, with bisection when a step leaves its bracket.
+		for iteration in range(64):
+			residual = self._corrected_mode_phase(t, interp_idxs, 1) - ws
+			converged = np.abs(residual) <= rtol * np.abs(ws)
+
+			if np.all(converged):
+				break
+
+			a = np.where((residual < 0) & ~converged, t, a)
+			b = np.where((residual > 0) & ~converged, t, b)
+
+			curvature = self._corrected_mode_phase(t, interp_idxs, 2)
+
+			if (not np.all(np.isfinite(curvature)) or np.any(curvature <= 0)):
+				raise ValueError("Nonpositive curvature during environmental stationary-time solve")
+
+			proposal = t - residual / curvature
+			proposal = np.where((proposal > a) & (proposal < b), proposal, a + 0.5 * (b - a))
+
+			t = np.where(converged, t, proposal)
+		else:
+			raise ValueError("Environmental stationary-time solve did not converge")
+
+		phase = (ws * t - self._corrected_mode_phase(t, interp_idxs) - 0.25 * np.pi)
+		curvature = self._corrected_mode_phase(t, interp_idxs, 2)
+
+		if (not np.all(np.isfinite(curvature)) or np.any(curvature <= 0)):
+			raise ValueError("Nonpositive curvature at environmental stationary point")
+
+		return (f_idxs, interp_idxs, t, phase, 1.0 / np.sqrt(curvature))
+
+
 	#function to compute stationary times given an input array of frequencies (see Eq.(46) of arXiv:1801.08542)
 	def stationary_times(self, freqs, rtol=1e-12, max_iter=3):
+
+		if (self.params['environmental_model'] is not None and self.params['environmental_fd_method'] == 'stationary_phase'):
+			return self._stationary_times_environment(freqs, rtol)
 		
 		#compute the omega associated with these frequencies
 		ws = 2*np.pi*np.asarray(freqs, dtype=float)
@@ -1643,7 +1806,7 @@ class pyEFPE:
 		ValueError
 			If neither `times` nor `delta_t` is provided.
 		"""
-        
+		
 		#if no time-array is given, create it
 		if times is None:
 			if delta_t is None: raise ValueError("To compute time-domain waveform, please give either an array of times or a time spacing delta_t")
@@ -1756,7 +1919,7 @@ class pyEFPE:
 		ValueError
 			If neither `times` nor `delta_t` is provided.
 		"""
-        
+		
 		#if no time-array is given, create it
 		if times is None:
 			if delta_t is None: raise ValueError("To compute time-domain waveform, please give either an array of times or a time spacing delta_t")
@@ -1781,7 +1944,7 @@ class pyEFPE:
 		#compute \lambda and \delta\lambda at the valid times
 		valid_l, valid_dl = self.sol(valid_times, derivative=0, idxs=[2,3])
 
-        # evaluate the environmental correction at the valid times
+		# evaluate the environmental correction at the valid times
 		valid_delta_phi = self._environmental_tdomain_orbital_phase(valid_times)
 
 		#if required, compute also the first and second derivatives of the phase
@@ -1855,9 +2018,9 @@ class pyEFPE:
 				else:
 					mode_label = (l,  m,  p)
 
-                # correct the phase for each harmonic
+				# correct the phase for each harmonic
 				phi_t += abs(p) * valid_delta_phi[t_idxs_ip]
-                
+				
 				#compute Fourier mode amplitudes for this mode
 				Nlm_p = self.compute_Nlm_p(valid_times[t_idxs_ip], interp_idxs_im[p_idxs])
 				
@@ -1877,7 +2040,7 @@ class pyEFPE:
 					DomegaDt = p*valid_DDlDt2[t_idxs_ip] + (m - p)*valid_DDdlDt2[t_idxs_ip]
 					#handle when p is negative, doing [p,m]->[-p,-m]
 					if p<0: omega, DomegaDt = -omega, -DomegaDt
-                    # correct the returned phase derivatives
+					# correct the returned phase derivatives
 					omega += abs(p) * valid_delta_omega[t_idxs_ip]
 					DomegaDt += abs(p) * valid_delta_DomegaDt[t_idxs_ip]
 					#add stuff to dictionary that will be returned
@@ -1977,7 +2140,7 @@ class pyEFPE:
 		#compute \lambda and \delta\lambda at the valid times
 		valid_l, valid_dl = self.sol(valid_times, derivative=0, idxs=[2,3])
 
-        # evaluate the environmental correction at the valid times
+		# evaluate the environmental correction at the valid times
 		valid_delta_phi = self._environmental_tdomain_orbital_phase(valid_times)
 
 		#if required, compute also the first and second derivatives of the phase
@@ -2052,9 +2215,9 @@ class pyEFPE:
 				else:
 					mode_label = (l,  m,  p)
 
-                # correct the phase of each harmonic
+				# correct the phase of each harmonic
 				phi_t += abs(p) * valid_delta_phi[t_idxs_ip]
-                
+				
 				#compute Fourier mode amplitudes for this mode
 				Nlm_p = self.compute_Nlm_p(valid_times[t_idxs_ip], interp_idxs_im[p_idxs])
 
@@ -2071,7 +2234,7 @@ class pyEFPE:
 					DomegaDt = p*valid_DDlDt2[t_idxs_ip] + (m - p)*valid_DDdlDt2[t_idxs_ip]
 					#handle when p is negative, doing [p,m]->[-p,-m]
 					if p<0: omega, DomegaDt = -omega, -DomegaDt
-                    # correct the returned phase derivatives
+					# correct the returned phase derivatives
 					omega += abs(p) * valid_delta_omega[t_idxs_ip]
 					DomegaDt += abs(p) * valid_delta_DomegaDt[t_idxs_ip]
 					#add stuff to dictionary that will be returned
@@ -2124,13 +2287,13 @@ class pyEFPE:
 		is_td = 'times' in result
 		if not (is_fd or is_td):
 			raise ValueError("result must be the output of generate_hlm_modes (has a 'freqs' key) "
-			                 "or generate_tdomain_hlm_modes (has a 'times' key); got neither.")
+							 "or generate_tdomain_hlm_modes (has a 'times' key); got neither.")
 		expected_convention = 'pyefpehm_native_fd' if is_fd else 'pyefpehm_native_td'
 		if result.get('mode_convention') != expected_convention:
 			raise ValueError("result['mode_convention']=%r does not match the expected %r for this "
-			                 "domain (%s); the frequency- and time-domain native reconstruction "
-			                 "contracts are different and must not be mixed."
-			                 % (result.get('mode_convention'), expected_convention, 'FD' if is_fd else 'TD'))
+							 "domain (%s); the frequency- and time-domain native reconstruction "
+							 "contracts are different and must not be mixed."
+							 % (result.get('mode_convention'), expected_convention, 'FD' if is_fd else 'TD'))
 
 		n_out = len(result['freqs']) if is_fd else len(result['times'])
 		idx_key = 'freq_idxs' if is_fd else 'time_idxs'

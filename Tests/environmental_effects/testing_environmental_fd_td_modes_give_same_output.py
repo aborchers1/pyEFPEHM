@@ -7,16 +7,18 @@ Dependencies: numpy, scipy, and the environmental/mode branch of pyEFPEHM.
 Optional plots also need matplotlib.
 
 Examples:
-    python check_environmental_fd_td.py --check
-    python check_environmental_fd_td.py --harmonic 2 2 3 --check
-    python check_environmental_fd_td.py --model roemer --plot comparison.png
+    python testing_environmental_fd_td_modes_give_same_output.py --check
+    python testing_environmental_fd_td_modes_give_same_output.py --harmonic 2 2 3 --check
+    python testing_environmental_fd_td_modes_give_same_output.py --model roemer --plot comparison.png
 
 The waveform tolerance defaults to 1% and the environmental-residual
 tolerance to 5%. These are adjustable diagnostic choices, not universal
 accuracy guarantees or noise-weighted detector mismatches.
 The metrics use the central half of the trajectory and both polarizations.
-No fitted time, phase, or amplitude alignment is performed. FD SPA/SUA and
-the first-order TD phase mapping need not agree exactly.
+No fitted time, phase, or amplitude alignment is performed. Each waveform
+uses its own FD support and stationary-time taper on the same padded FFT grid.
+The first-order phase-prescription comparison is diagnostic only; it need not
+vanish for the stationary_phase FD construction.
 """ 
 import argparse  # handle command-line arguments and help messages
 import sys  # report errors to stderr and return process exit codes
@@ -40,6 +42,10 @@ def parse_args():  # define and validate the command-line options
                         metavar=("L", "M", "N"))  # label the degree, azimuthal number, and eccentric harmonic index
     parser.add_argument("--model", choices=["all", "roemer", "bhl", "supersonic"],  # list the available environmental models
                         default="all")  # run all three models by default
+    parser.add_argument("--environmental-fd-method", choices=("phase_only", "stationary_phase"),
+                        default="stationary_phase", help="Select the FD environmental construction.")
+    parser.add_argument("--sua-kmax", type=int, default=0,
+                        help="FD precession correction order; use 3 for precessing comparisons.")
     parser.add_argument("--redshift", type=float, default=0.0)  # set the redshift used by the environmental prescriptions
     parser.add_argument("--phase-sign", type=int, choices=[-1, 1], default=1)  # choose the sign of the phase correction
     parser.add_argument("--tertiary-mass", type=float, default=1.0)  # set the tertiary mass in solar masses
@@ -47,7 +53,7 @@ def parse_args():  # define and validate the command-line options
     parser.add_argument("--gas-density", type=float, default=1e-7)  # set the gas density in kilograms per cubic metre
     parser.add_argument("--sound-speed", type=float, default=1e4)  # set the sound speed in metres per second
     parser.add_argument("--target-phase", type=float, default=0.1,  # set the desired phase magnitude near the start, in radians
-                        help="Near-initial harmonic FD phase magnitude; 0 disables rescaling.")  # document that zero keeps the supplied physical parameters
+                        help="Near-initial first-order harmonic phase magnitude; 0 preserves physical inputs.")  # document that zero keeps the supplied physical parameters
     parser.add_argument("--max-samples", type=int, default=2_000_000,  # cap the number of samples in the padded time grid
                         help="Refuse a larger FFT before allocating it.")  # explain that the limit is checked before FFT allocation
     parser.add_argument("--check", action="store_true",  # enable threshold checks for automated runs
@@ -56,6 +62,8 @@ def parse_args():  # define and validate the command-line options
     parser.add_argument("--effect-tolerance", type=float, default=0.05)  # set the relative error limit for the change due to the environment
     parser.add_argument("--plot", metavar="PNG", help="Optionally save diagnostic plots.")  # accept an optional PNG filename for the plots
     args = parser.parse_args()  # parse the options supplied on the command line
+    if args.sua_kmax < 0:
+        parser.error("sua-kmax must be nonnegative.")
     numbers = [args.mass1, args.mass2, args.f_start, args.f_end, args.dt,  # collect the quantities that must be positive and finite
                args.tertiary_mass, args.tertiary_distance, args.sound_speed,  # include the tertiary and gas parameters that must be positive
                args.waveform_tolerance, args.effect_tolerance]  # apply the same requirement to both error tolerances
@@ -86,10 +94,12 @@ def taper(times, start, end):  # define the endpoint taper on the supplied time 
 def compare(candidate, reference, mask):  # compare two waveforms on the selected time samples
     a, b = candidate[:, mask].ravel(), reference[:, mask].ravel()  # flatten the selected samples across both polarizations
     norm_a, norm_b = np.linalg.norm(a), np.linalg.norm(b)  # measure the amplitude of each waveform with its norm
-    if norm_a == 0 or norm_b == 0:  # check that both norms can serve as divisors
+    if not np.isfinite(norm_a + norm_b) or norm_a == 0 or norm_b == 0:  # check that both norms can serve as divisors
         raise ValueError("Zero waveform or environmental residual; comparison is undefined.")  # stop if a waveform has no signal in the comparison window
     error = np.linalg.norm(a - b) / norm_b  # normalize the difference by the reference waveform norm
     overlap = np.clip(np.dot(a, b) / (norm_a * norm_b), -1, 1)  # compute the normalized inner product and clip roundoff at its bounds
+    if not np.isfinite(error) or not np.isfinite(overlap):
+        raise ValueError("Nonfinite comparison metric.")
     return float(error), float(1 - overlap)  # return the relative error and the unweighted mismatch
 
 
@@ -127,9 +137,10 @@ def main():  # run the waveform comparison for the selected models
     base = dict(mass1=args.mass1, mass2=args.mass2,  # begin the common vacuum and environmental parameter set with the masses
                 eccentricity=args.eccentricity, distance=100.0, inclination=0.9,  # set the eccentricity, luminosity distance in Mpc, and inclination in radians
                 f22_start=args.f_start, f22_ref=args.f_start, f22_end=args.f_end,  # set the reference frequency to the start of the quadrupole interval
-                harmonic_array=[list(key)], pn_amplitude_order=0, SUA_kmax=0,  # select one harmonic with 0PN amplitudes and no shifted amplitude terms
+                harmonic_array=[list(key)], pn_amplitude_order=0, SUA_kmax=args.sua_kmax,  # select one harmonic and the requested precession correction
                 environmental_redshift=args.redshift,  # pass the redshift used for the environmental correction
-                environmental_phase_sign=args.phase_sign)  # include the requested correction sign
+                environmental_phase_sign=args.phase_sign,  # include the requested correction sign
+                environmental_fd_method=args.environmental_fd_method)
     print("pyEFPEHM source", pyEFPEHM.__file__)  # show which pyEFPEHM installation Python imported
     print("Binary and harmonic", base, flush=True)  # report the common parameters before waveform generation
     vacuum = pyEFPEHM.pyEFPE(base)  # construct the vacuum waveform generator
@@ -159,10 +170,9 @@ def main():  # run the waveform comparison for the selected models
     vacuum_modes = vacuum.generate_tdomain_modes(probe_times, return_waveform_pieces=True)  # obtain the vacuum mode and its phase derivatives at those times
     if set(vacuum_modes["modes"]) != {key}:  # verify that the mode generator kept the requested harmonic
         raise ValueError(f"Requested harmonic {key} is absent or was replaced.")  # report a missing or replaced harmonic
-    probe_mode = vacuum_modes["modes"][key]  # retrieve the vacuum mode for the phase normalization reference
-    reference_frequency = np.array([probe_mode["omega"][1] / (2 * np.pi)])  # use an interior frequency to avoid roundoff at the support boundary
-    reference_vacuum = vacuum.generate_modes(  # get the vacuum FD phase at the selected reference frequency
-        reference_frequency, return_waveform_pieces=True)["modes"][key]  # keep the mode metadata for subtracting the vacuum phase
+    # Normalize strength at a vacuum orbital epoch. A fixed frequency near
+    # the vacuum band edge can lie outside the environmental FD support.
+    reference_time = probe_times[1]
 
     def evaluate(waveform):  # evaluate one waveform in both domains on the common grids
         mode = waveform.generate_tdomain_modes(  # probe the instantaneous phase derivatives for this model
@@ -189,36 +199,39 @@ def main():  # run the waveform comparison for the selected models
     for model in models:  # run the selected environmental effects one at a time
         options, strength_key = environment(args, model)  # get each model's parameters and the strength used for rescaling
         waveform = pyEFPEHM.pyEFPE({**base, **options})  # construct an initial waveform with the supplied physical parameters
-        reference_mode = waveform.generate_modes(  # evaluate the FD mode at the same reference frequency as vacuum
-            reference_frequency, return_waveform_pieces=True)["modes"][key]  # retain the stationary-phase metadata for the selected harmonic
-        initial_phase = float(  # calculate the applied phase correction at the reference frequency
-            reference_mode["psi_SPA"][0] - reference_vacuum["psi_SPA"][0])  # subtract the vacuum stationary phase from the environmental phase
+        initial_phase = float(-key[2] * waveform._environmental_tdomain_orbital_phase(reference_time))
         if args.target_phase:  # rescale the effect when a nonzero target phase is requested
             if not np.isfinite(initial_phase) or initial_phase == 0:  # check that the initial phase can be used as a scale
                 raise ValueError(f"Cannot normalize {model} phase {initial_phase}.")  # report a phase that cannot be normalized
             options[strength_key] *= args.target_phase / abs(initial_phase)  # rescale the linear strength parameter to reach the target phase magnitude
             waveform = pyEFPEHM.pyEFPE({**base, **options})  # rebuild the waveform with the rescaled environmental parameters
         direct, inverse, fd_mode = evaluate(waveform)  # compute the direct and inverse-transformed environmental waveforms
-        if not np.array_equal(fd_mode["freq_idxs"], vacuum_fd_mode["freq_idxs"]):  # check that the public FD generator returned the same bins in both cases
-            raise ValueError("Vacuum and environmental FD supports differ.")  # stop if the FD phase arrays would refer to different frequencies
-        np.testing.assert_allclose(  # verify that the two FD waveforms use the same stationary times
-            fd_mode["t_SPA"], vacuum_fd_mode["t_SPA"], rtol=0, atol=1e-10)  # allow a small absolute tolerance in seconds for that comparison
-        phase_mask = (  # select stationary times in the same central half used for waveform errors
-            (fd_mode["t_SPA"] >= start + 0.25 * duration)  # exclude the first quarter of the trajectory
-            & (fd_mode["t_SPA"] <= end - 0.25 * duration)  # exclude the last quarter of the trajectory
-        )  # finish defining the mask for the phase diagnostic
-        if not np.any(phase_mask):  # check for at least one stationary time in the comparison region
-            raise ValueError("No interior stationary times for the phase comparison.")  # stop if the phase comparison has no samples
-        fd_phase = (  # compute the environmental phase actually applied by the FD generator
-            fd_mode["psi_SPA"][phase_mask] - vacuum_fd_mode["psi_SPA"][phase_mask]  # subtract the vacuum phase in the matching interior frequency bins
-        )  # finish building the FD phase difference
-        td_phase = key[2] * waveform._environmental_tdomain_orbital_phase(  # scale the shared TD orbital correction by the harmonic index
-            fd_mode["t_SPA"][phase_mask])  # evaluate it at the same stationary times as the FD phase
-        if not np.any(fd_phase):  # check that an FD correction is numerically resolvable
-            raise ValueError(f"{model} FD correction is too small to resolve.")  # report a phase correction too small for the test
-        prescription_error = np.linalg.norm(fd_phase + td_phase) / np.linalg.norm(fd_phase)  # measure agreement using the opposite TD and FD phase signs
-        if not np.isfinite(prescription_error):  # check whether the resulting relative discrepancy is finite
-            raise ValueError("Nonfinite phase-prescription discrepancy.")  # report an invalid phase diagnostic
+        # Match physical frequencies for the phase diagnostic only. The FFTs
+        # above retain each model's FULL support, including unmatched edge bins.
+        common_bins, env_indices, vac_indices = np.intersect1d(
+            fd_mode["freq_idxs"], vacuum_fd_mode["freq_idxs"],
+            return_indices=True,
+        )
+        env_times = fd_mode["t_SPA"][env_indices]
+        vac_times = vacuum_fd_mode["t_SPA"][vac_indices]
+        left, right = start + 0.25*duration, end - 0.25*duration
+        phase_mask = ((env_times >= left) & (env_times <= right)
+                      & (vac_times >= left) & (vac_times <= right))
+        if not np.any(phase_mask):
+            raise ValueError("No common interior FD bins for the phase diagnostic.")
+        fd_phase = (fd_mode["psi_SPA"][env_indices[phase_mask]]
+                    - vacuum_fd_mode["psi_SPA"][vac_indices[phase_mask]])
+        # This is the first-order relation evaluated at VACUUM emission times.
+        # It is exact for the phase_only prescription, not a requirement on the
+        # finite-strength stationary_phase construction.
+        td_phase = key[2] * waveform._environmental_tdomain_orbital_phase(vac_times[phase_mask])
+        phase_norm = np.linalg.norm(fd_phase)
+        if phase_norm == 0 or not np.isfinite(phase_norm):
+            raise ValueError(f"{model} FD correction is too small or nonfinite for the phase diagnostic.")
+        prescription_error = np.linalg.norm(fd_phase + td_phase) / phase_norm
+        if not np.isfinite(prescription_error):
+            raise ValueError("Nonfinite phase-prescription discrepancy.")
+        stationary_shift = float(np.max(np.abs(env_times[phase_mask] - vac_times[phase_mask])))
         error, mismatch = compare(inverse, direct, interior)  # compare the complete environmental waveforms
         delta_direct = direct - direct_vacuum  # subtract vacuum from the direct TD waveform
         delta_inverse = inverse - inverse_vacuum  # subtract vacuum after both FD waveforms have been inverse-transformed
@@ -228,7 +241,9 @@ def main():  # run the waveform comparison for the selected models
             raise ValueError(f"{model} waveform change {effect_size:.3g} is too small to test.")  # report the change that fell below the diagnostic floor
         effect_error, _ = compare(delta_inverse, delta_direct, interior)  # compare the environmental residuals in the two domains
         print(f"{model}: {options}")  # print the model parameters actually used
-        print(f"  relative phase-prescription discrepancy {prescription_error:.6g}")  # report the relative disagreement between the phase prescriptions
+        print(f"  FD active bins {len(fd_mode['freq_idxs'])}; vacuum {len(vacuum_fd_mode['freq_idxs'])}; common {len(common_bins)}")
+        print(f"  max interior stationary-time shift {stationary_shift:.6g} s")
+        print(f"  relative first-order phase-prescription discrepancy {prescription_error:.6g} (diagnostic only)")  # report the relative disagreement between the phase prescriptions
         print(f"  relative L2 {error:.6g}; unweighted mismatch {mismatch:.6g}")  # report the complete waveform error and mismatch
         print(f"  TD change/vacuum {effect_size:.6g}; relative environmental residual error {effect_error:.6g}",  # print the size of the TD change and the error between residuals
               flush=True)  # flush the model metrics before moving to the next run

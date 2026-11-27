@@ -13,40 +13,66 @@ import numpy as np
 # model.
 
 def rename_parameters(parameters):
-    # Parameter name conversions, all others passed directly
-    # This helps keep a consistent naming convention set for downstream
-    # Where possible, sticking to
-    # https://github.com/gwastro/pycbc/blob/master/pycbc/waveform/parameters.py
-    #
-    # Note that the native names may be provided in most cases in lieue of
-    # these, except in the case of 'f_lower'.
-    conversions = {'f_lower': 'f22_start',
-                   'f_ref': 'f22_ref',
-                   'f_final': 'f22_end',
-                   'coa_phase': 'phase',
-                   'mean_per_ano': 'mean_anomaly',
-                   'dquad_mon1': 'q1',
-                   'dquad_mon2': 'q2',
-                   }
+	# Parameter name conversions, all others passed directly
+	# This helps keep a consistent naming convention set for downstream
+	# Where possible, sticking to
+	# https://github.com/gwastro/pycbc/blob/master/pycbc/waveform/parameters.py
+	#
+	# Note that the native names may be provided in most cases in lieue of
+	# these, except in the case of 'f_lower'.
+	conversions = {'f_lower': 'f22_start',
+				   'f_ref': 'f22_ref',
+				   'f_final': 'f22_end',
+				   'coa_phase': 'phase',
+				   'mean_per_ano': 'mean_anomaly',
+				   }
 
-    # PyCBC's own convention for 'f_final' is that 0 (its default, see
-    # pycbc.waveform.parameters.f_final) means "no cap -- use natural termination", same as it
-    # being absent entirely. pyEFPEHM's own f22_end does NOT share that convention: 0 is treated as
-    # a real cutoff, which shifts the ODE integration's stop time (observed as a several-ms shift in
-    # return_start_time, i.e. a spurious linear-in-frequency FD phase error). So treat f_final=0 the
-    # same as f_final=None here, unlike every other key (where only None means "not provided").
-    unset_values = {'f_final': {None, 0}}
+	# PyCBC's own convention for 'f_final' is that 0 (its default, see
+	# pycbc.waveform.parameters.f_final) means "no cap -- use natural termination", same as it
+	# being absent entirely. pyEFPEHM's own f22_end does NOT share that convention: 0 is treated as
+	# a real cutoff, which shifts the ODE integration's stop time (observed as a several-ms shift in
+	# return_start_time, i.e. a spurious linear-in-frequency FD phase error). So treat f_final=0 the
+	# same as f_final=None here, unlike every other key (where only None means "not provided").
+	unset_values = {'f_final': {None, 0}}
 
-    renamed_params = {
-        new_name: parameters[old_name]
-        for old_name, new_name in conversions.items()
-        if (old_name in parameters) and (parameters[old_name] not in unset_values.get(old_name, {None}))
-    }
-    parameters.update(renamed_params)
+	renamed_params = {
+		new_name: parameters[old_name]
+		for old_name, new_name in conversions.items()
+		if (old_name in parameters) and (parameters[old_name] not in unset_values.get(old_name, {None}))
+	}
+	parameters.update(renamed_params)
 
+	# PyCBC uses a deviation from Kerr; native q is the full coefficient.
+	for body in (1, 2):
+		value = parameters.get('dquad_mon%d' % body)
+		if value is not None:
+			parameters['q%d' % body] = 1.0 + value
 
+	
+def native_parameters(parameters):
+	"""Translate PyCBC inputs and remove consumed API-only aliases."""
+	native = dict(parameters)
+	rename_parameters(native)
+
+	for name in (
+		'approximant',
+		'delta_f',
+		'delta_t',
+		'f_lower',
+		'f_ref',
+		'f_final',
+		'coa_phase',
+		'mean_per_ano',
+		'dquad_mon1',
+		'dquad_mon2',
+	):
+		native.pop(name, None)
+
+	return native
+
+	
 def _mode_array_to_pyEFPEHM(parameters):
-    """ Convert a PyCBC-style mode_array (list of (l, m) or (l, m, n) tuples, where n is the
+	""" Convert a PyCBC-style mode_array (list of (l, m) or (l, m, n) tuples, where n is the
     eccentric harmonic index) into pyEFPEHM's own mode_array/harmonic_array parameters.
 
     (l, m) entries select the whole (l, m) co-precessing multipole, letting pyEFPEHM choose which
@@ -63,81 +89,81 @@ def _mode_array_to_pyEFPEHM(parameters):
     others pinned to one specific harmonic), call get_fd_waveform_modes/get_td_waveform_modes twice
     (once per kind) and combine the results yourself.
     """
-    mode_array = parameters.pop('mode_array', None)
-    if mode_array is None:
-        return
+	mode_array = parameters.pop('mode_array', None)
+	if mode_array is None:
+		return
 
-    lengths = {len(entry) for entry in mode_array}
-    if lengths - {2, 3}:
-        raise ValueError("mode_array entries must be (l, m) or (l, m, n), got %s"%(mode_array,))
-    if lengths == {2, 3}:
-        raise ValueError("mode_array mixes plain (l, m) entries with (l, m, n) entries (%s); "
-                         "pyEFPEHM's harmonic_array is all-or-nothing, so this cannot be honoured "
-                         "in one call -- see _mode_array_to_pyEFPEHM's docstring."%(mode_array,))
+	lengths = {len(entry) for entry in mode_array}
+	if lengths - {2, 3}:
+		raise ValueError("mode_array entries must be (l, m) or (l, m, n), got %s"%(mode_array,))
+	if lengths == {2, 3}:
+		raise ValueError("mode_array mixes plain (l, m) entries with (l, m, n) entries (%s); "
+						 "pyEFPEHM's harmonic_array is all-or-nothing, so this cannot be honoured "
+						 "in one call -- see _mode_array_to_pyEFPEHM's docstring."%(mode_array,))
 
-    if lengths == {2}:
-        parameters['mode_array'] = [list(entry) for entry in mode_array]
-    else:
-        harmonic_array = [list(entry) for entry in mode_array]
-        parameters['harmonic_array'] = harmonic_array
-        parameters['mode_array'] = [entry[:2] for entry in harmonic_array]
+	if lengths == {2}:
+		parameters['mode_array'] = [list(entry) for entry in mode_array]
+	else:
+		harmonic_array = [list(entry) for entry in mode_array]
+		parameters['harmonic_array'] = harmonic_array
+		parameters['mode_array'] = [entry[:2] for entry in harmonic_array]
 
 
 def pycbc_fd_plugin(**parameters):
-    """ Interface for the PyCBC package: frequency-domain, summed [h_+, h_x]
+	""" Interface for the PyCBC package: frequency-domain, summed [h_+, h_x]
     """
-    # Do imports here to avoid all possibility of circular imports that
-    # could affect the overall package
-    from . import EFPE
+	# Do imports here to avoid all possibility of circular imports that
+	# could affect the overall package
+	from . import EFPE
 
-    from pycbc.types import FrequencySeries
-    from pycbc.pnutils import f_SchwarzISCO
+	from pycbc.types import FrequencySeries
+	from pycbc.pnutils import f_SchwarzISCO
 
-    rename_parameters(parameters)
-    _mode_array_to_pyEFPEHM(parameters)
-    wf = EFPE.pyEFPE(parameters)
-    M = parameters['mass1'] + parameters['mass2']
-    delta_f = parameters['delta_f']
+	rename_parameters(parameters)
+	_mode_array_to_pyEFPEHM(parameters)
+	wf = EFPE.pyEFPE(native_parameters(parameters))
+	M = parameters['mass1'] + parameters['mass2']
+	delta_f = parameters['delta_f']
 
-    # A pycbc.types.FrequencySeries has no independent frequency-offset field: sample k is defined
-    # to be at f=k*delta_f, always starting from f=0. So the active band (f_lower..ISCO) must be
-    # snapped onto that same k*delta_f grid and placed at the matching index, with genuine zeros
-    # below f_lower -- simply wrapping an array that starts at f_lower would silently mislabel every
-    # sample's frequency (off by f_lower), which corrupts anything relying on .sample_frequencies.
-    kmin = int(np.ceil(parameters['f_lower']/delta_f))
-    kmax = int(np.floor(f_SchwarzISCO(M)/delta_f)) + 1
-    freqs = np.arange(kmin, kmax)*delta_f
+	# A pycbc.types.FrequencySeries has no independent frequency-offset field: sample k is defined
+	# to be at f=k*delta_f, always starting from f=0. So the active band (f_lower..ISCO) must be
+	# snapped onto that same k*delta_f grid and placed at the matching index, with genuine zeros
+	# below f_lower -- simply wrapping an array that starts at f_lower would silently mislabel every
+	# sample's frequency (off by f_lower), which corrupts anything relying on .sample_frequencies.
+	kmin = int(np.ceil(parameters['f_lower']/delta_f))
+	kmax = int(np.floor(f_SchwarzISCO(M)/delta_f)) + 1
+	freqs = np.arange(kmin, kmax)*delta_f
 
-    hp_active, hc_active = wf.generate_waveform(freqs)
+	hp_active, hc_active = wf.generate_waveform(freqs)
 
-    hp = np.zeros(kmax, dtype=np.complex128); hp[kmin:] = hp_active
-    hc = np.zeros(kmax, dtype=np.complex128); hc[kmin:] = hc_active
+	hp = np.zeros(kmax, dtype=np.complex128); hp[kmin:] = hp_active
+	hc = np.zeros(kmax, dtype=np.complex128); hc[kmin:] = hc_active
 
-    epoch = wf.return_start_time()
-    hp = FrequencySeries(hp, epoch=epoch, delta_f=delta_f)
-    hc = FrequencySeries(hc, epoch=epoch, delta_f=delta_f)
-    return hp, hc
+	epoch = wf.return_start_time()
+	hp = FrequencySeries(hp, epoch=epoch, delta_f=delta_f)
+	hc = FrequencySeries(hc, epoch=epoch, delta_f=delta_f)
+	return hp, hc
 
 
 def pycbc_td_plugin(**parameters):
-    """ Interface for the PyCBC package: time-domain, summed [h_+, h_x]
+	""" Interface for the PyCBC package: time-domain, summed [h_+, h_x]
     """
-    # Do imports here to avoid all possibility of circular imports that
-    # could affect the overall package
-    from . import EFPE
+	# Do imports here to avoid all possibility of circular imports that
+	# could affect the overall package
+	from . import EFPE
 
-    from pycbc.types import TimeSeries
+	from pycbc.types import TimeSeries
 
-    rename_parameters(parameters)
-    _mode_array_to_pyEFPEHM(parameters)
-    wf = EFPE.pyEFPE(parameters)
+	rename_parameters(parameters)
+	_mode_array_to_pyEFPEHM(parameters)
+	wf = EFPE.pyEFPE(native_parameters(parameters))
 
-    hp, hc = wf.generate_tdomain_waveform(delta_t=parameters["delta_t"])
+	hp, hc = wf.generate_tdomain_waveform(delta_t=parameters["delta_t"])
 
-    epoch = wf.return_start_time()
-    hp = TimeSeries(hp, epoch=epoch, delta_t=parameters['delta_t'])
-    hc = TimeSeries(hc, epoch=epoch, delta_t=parameters['delta_t'])
-    return hp, hc
+	epoch = wf.return_start_time()
+	hp = TimeSeries(hp, epoch=epoch, delta_t=parameters['delta_t'])
+	hc = TimeSeries(hc, epoch=epoch, delta_t=parameters['delta_t'])
+	return hp, hc
 
 
 r""" Mode-by-mode plugins (feed PyCBC's get_fd_waveform_modes/get_td_waveform_modes)
@@ -175,7 +201,7 @@ the FD case "should" work like the TD case, or vice versa -- use the formulas ab
 """
 
 def pycbc_fd_modes_plugin(**parameters):
-    """ Interface for the PyCBC package: frequency-domain (l, mp, n, m) modes, not summed.
+	""" Interface for the PyCBC package: frequency-domain (l, mp, n, m) modes, not summed.
 
     Returns
     -------
@@ -184,40 +210,40 @@ def pycbc_fd_modes_plugin(**parameters):
     vlm : dict
         (l, mp, n, m) -> Im(hlm(f)), as a pycbc.types.FrequencySeries
     """
-    from . import EFPE
-    from pycbc.types import FrequencySeries
-    from pycbc.pnutils import f_SchwarzISCO
+	from . import EFPE
+	from pycbc.types import FrequencySeries
+	from pycbc.pnutils import f_SchwarzISCO
 
-    rename_parameters(parameters)
-    _mode_array_to_pyEFPEHM(parameters)
-    parameters['Compute_hlm_Modes'] = True
-    wf = EFPE.pyEFPE(parameters)
+	rename_parameters(parameters)
+	_mode_array_to_pyEFPEHM(parameters)
+	parameters['Compute_hlm_Modes'] = True
+	wf = EFPE.pyEFPE(native_parameters(parameters))
 
-    M = parameters['mass1'] + parameters['mass2']
-    delta_f = parameters['delta_f']
+	M = parameters['mass1'] + parameters['mass2']
+	delta_f = parameters['delta_f']
 
-    # Same f=k*delta_f grid-snapping/zero-padding as pycbc_fd_plugin -- see its comment for why
-    # (otherwise every mode's FrequencySeries would report frequencies mislabeled by -f_lower).
-    kmin = int(np.ceil(parameters['f_lower']/delta_f))
-    kmax = int(np.floor(f_SchwarzISCO(M)/delta_f)) + 1
-    freqs = np.arange(kmin, kmax)*delta_f
+	# Same f=k*delta_f grid-snapping/zero-padding as pycbc_fd_plugin -- see its comment for why
+	# (otherwise every mode's FrequencySeries would report frequencies mislabeled by -f_lower).
+	kmin = int(np.ceil(parameters['f_lower']/delta_f))
+	kmax = int(np.floor(f_SchwarzISCO(M)/delta_f)) + 1
+	freqs = np.arange(kmin, kmax)*delta_f
 
-    result = wf.generate_hlm_modes(freqs)
-    epoch = wf.return_start_time()
+	result = wf.generate_hlm_modes(freqs)
+	epoch = wf.return_start_time()
 
-    ulm, vlm = {}, {}
-    for (l, m, n), mode in result['modes'].items():
-        for j, mp in enumerate(mode['mp']):
-            key = (l, int(mp), int(n), int(m))
-            hlm_full = np.zeros(kmax, dtype=np.complex128)
-            hlm_full[kmin + mode['freq_idxs']] = mode['hlm'][:, j]
-            ulm[key] = FrequencySeries(hlm_full.real, epoch=epoch, delta_f=delta_f)
-            vlm[key] = FrequencySeries(hlm_full.imag, epoch=epoch, delta_f=delta_f)
-    return ulm, vlm
+	ulm, vlm = {}, {}
+	for (l, m, n), mode in result['modes'].items():
+		for j, mp in enumerate(mode['mp']):
+			key = (l, int(mp), int(n), int(m))
+			hlm_full = np.zeros(kmax, dtype=np.complex128)
+			hlm_full[kmin + mode['freq_idxs']] = mode['hlm'][:, j]
+			ulm[key] = FrequencySeries(hlm_full.real, epoch=epoch, delta_f=delta_f)
+			vlm[key] = FrequencySeries(hlm_full.imag, epoch=epoch, delta_f=delta_f)
+	return ulm, vlm
 
 
 def pycbc_td_modes_plugin(**parameters):
-    """ Interface for the PyCBC package: time-domain (l, mp, n, m) modes, not summed.
+	""" Interface for the PyCBC package: time-domain (l, mp, n, m) modes, not summed.
 
     Returns
     -------
@@ -226,26 +252,26 @@ def pycbc_td_modes_plugin(**parameters):
     vlm : dict
         (l, mp, n, m) -> Im(hlm(t)), as a pycbc.types.TimeSeries
     """
-    from . import EFPE
-    from pycbc.types import TimeSeries
+	from . import EFPE
+	from pycbc.types import TimeSeries
 
-    rename_parameters(parameters)
-    _mode_array_to_pyEFPEHM(parameters)
-    parameters['Compute_hlm_Modes'] = True
-    wf = EFPE.pyEFPE(parameters)
+	rename_parameters(parameters)
+	_mode_array_to_pyEFPEHM(parameters)
+	parameters['Compute_hlm_Modes'] = True
+	wf = EFPE.pyEFPE(native_parameters(parameters))
 
-    delta_t = parameters['delta_t']
-    result = wf.generate_tdomain_hlm_modes(delta_t=delta_t)
-    times = result['times']
+	delta_t = parameters['delta_t']
+	result = wf.generate_tdomain_hlm_modes(delta_t=delta_t)
+	times = result['times']
 
-    epoch = wf.return_start_time()
+	epoch = wf.return_start_time()
 
-    ulm, vlm = {}, {}
-    for (l, m, n), mode in result['modes'].items():
-        for j, mp in enumerate(mode['mp']):
-            key = (l, int(mp), int(n), int(m))
-            hlm_full = np.zeros(len(times), dtype=np.complex128)
-            hlm_full[mode['time_idxs']] = mode['hlm'][:, j]
-            ulm[key] = TimeSeries(hlm_full.real, epoch=epoch, delta_t=delta_t)
-            vlm[key] = TimeSeries(hlm_full.imag, epoch=epoch, delta_t=delta_t)
-    return ulm, vlm
+	ulm, vlm = {}, {}
+	for (l, m, n), mode in result['modes'].items():
+		for j, mp in enumerate(mode['mp']):
+			key = (l, int(mp), int(n), int(m))
+			hlm_full = np.zeros(len(times), dtype=np.complex128)
+			hlm_full[mode['time_idxs']] = mode['hlm'][:, j]
+			ulm[key] = TimeSeries(hlm_full.real, epoch=epoch, delta_t=delta_t)
+			vlm[key] = TimeSeries(hlm_full.imag, epoch=epoch, delta_t=delta_t)
+	return ulm, vlm
